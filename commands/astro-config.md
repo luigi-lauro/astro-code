@@ -1,7 +1,19 @@
 ---
-description: Choose which model runs each role and how hard it thinks — planner, researcher, executor, verifier, discover, integrator
+description: Configure astro-code's agents — which model runs each role and how hard it thinks, or which extra MCP tools (e.g. lean-ctx) they may use
+argument-hint: [models|tools]
 allowed-tools: Bash, AskUserQuestion
 ---
+
+Two things can be configured here:
+
+- **models** — which model runs each role, and how hard it thinks (below, "Models").
+- **tools** — which extra MCP tools astro-code's agents may use (last section, "Agent tools").
+
+If `$ARGUMENTS` is `models` or `tools`, go straight to that section. Otherwise ask with
+**AskUserQuestion** — header `Configure`, options **Models** (tier + reasoning per role) and
+**Agent tools** (extra MCP tools for the agents) — and follow the one picked.
+
+# Models
 
 Interactively configure the per-role **model tier** and **reasoning depth** in
 `.astrocode/config.json`. They are independent levers and both move cost — a cheap
@@ -72,3 +84,38 @@ for more clamps to the host's ceiling rather than silently falling back to its d
   pick cleanly is preserved and re-run at the executor tier)
 
 Finish by showing the result: `ac models`.
+
+# Agent tools
+
+Each astro agent has a fixed tool list that Claude Code enforces, so it cannot call an MCP
+tool the session has (e.g. lean-ctx's cheap `ctx_read`) unless the user adds it. The
+setting is **per user** — `~/.astro/config.json`, shared by every project on this machine —
+and `ac agent-tools` is the only thing that writes it. **The user never types a tool name:
+you list what this session actually has.**
+
+1. **Show what is set:** `ac agent-tools --json` — `config` (what the user added),
+   `agents` (what each agent gets now) and `agentNames` (the valid agent names).
+2. **Find the MCP tools this session has.** Collect every tool name you can see that starts
+   with `mcp__` — the ones loaded in your tool list AND the deferred ones listed by name only.
+   Group them by server: the part between `mcp__` and the next `__`. Tools astro-code's
+   agents already reach natively (plain file read/search) need nothing. If there are no MCP
+   tools at all, say so in one line and stop.
+3. **Ask which servers** with AskUserQuestion (`multiSelect: true`): one option per server,
+   each described in a few words from its tool names (e.g. "lean-ctx — cheap file reads and
+   search"). Recommend the ones that help an agent read or search code. At most 4 options;
+   if there are more, offer the 4 most useful and let "Other" name the rest.
+4. **Ask which of their tools**, per chosen server, with a recommendation of **read-only
+   (Recommended)** — tools whose names read, get, list, search, query, find, view, tree,
+   glob or grep — versus **all tools** versus **let me pick**. Read-only is the safe default:
+   the verifier and researchers must never be able to change the tree through a side door,
+   and a write tool is a deliberate choice for `astro-executor` only.
+5. **Ask which agents** get them: **all agents (Recommended)** (`*`), **the read-side only**
+   (`astro-researcher`, `astro-planner`, `astro-verifier`, `astro-criteria-author`,
+   `astro-mapper`), or **let me pick** (from `agentNames`).
+6. **Apply** — never edit the JSON yourself:
+   - `ac agent-tools add <agent|*> <mcp__server__tool> …` — once per target agent (or `*`)
+   - to take tools away: `ac agent-tools remove <agent|*> <tool> …`, or `ac agent-tools clear`
+   `ac` validates every name, keeps the other keys in that file, and applies the change to the
+   installed agents immediately. Relay its warnings; if it refuses, show why and stop.
+7. **Finish** with `ac agent-tools` (the per-agent result) and one line: a Claude Code session
+   already running keeps its old agent definitions — restart it to pick them up.

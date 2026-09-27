@@ -124,3 +124,76 @@ test('a self-hosted config dir (agents/ IS the source) is named: agent_tools can
   assert.match(r.stdout, /reads the agents from the source checkout itself — agent_tools does not apply there/);
   assert.doesNotMatch(toolsLine(readFileSync(join(FRAMEWORK, 'agents', 'astro-researcher.md'), 'utf8')), /mcp__/, 'the source is never edited');
 });
+
+// ── `ac agent-tools`: change it without hand-editing JSON, applied at once ──────
+
+const acIn = (h, args) => spawnSync(process.execPath, [join(FRAMEWORK, 'bin', 'ac.mjs'), ...args], {
+  cwd: h, encoding: 'utf8', env: { ...process.env, HOME: h, CLAUDE_CONFIG_DIR: join(h, '.claude'), CODEX_HOME: join(h, 'no-codex') },
+});
+const cfgOf = (h) => JSON.parse(readFileSync(join(h, '.astro', 'config.json'), 'utf8'));
+
+test('ac agent-tools add writes the key, keeps every other key, and re-applies the installed agents at once', () => {
+  const h = home({ astrokit: { token: 'secret' } });
+  assert.equal(install(h).status, 0);
+  const r = acIn(h, ['agent-tools', 'add', '*', ...LEAN]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(cfgOf(h).agent_tools, { '*': LEAN });
+  assert.equal(cfgOf(h).astrokit.token, 'secret', 'the other keys in ~/.astro/config.json survive');
+  assert.match(toolsLine(readFileSync(join(h, '.astro', 'code', 'agents', 'astro-planner.md'), 'utf8')), /mcp__lean-ctx__ctx_read, mcp__lean-ctx__ctx_search$/,
+    'applied without a separate ac install');
+  assert.match(r.stdout, /6 agent\(s\) extended/);
+  // adding again is a no-op, not a duplicate
+  acIn(h, ['agent-tools', 'add', '*', LEAN[0]]);
+  assert.deepEqual(cfgOf(h).agent_tools['*'], LEAN);
+});
+
+test('ac agent-tools remove and clear take tools back out, and the agents follow', () => {
+  const h = home();
+  assert.equal(install(h).status, 0);
+  acIn(h, ['agent-tools', 'add', 'astro-executor', ...LEAN]);
+  assert.equal(acIn(h, ['agent-tools', 'remove', 'astro-executor', LEAN[0]]).status, 0);
+  assert.deepEqual(cfgOf(h).agent_tools, { 'astro-executor': [LEAN[1]] });
+  assert.equal(acIn(h, ['agent-tools', 'clear']).status, 0);
+  assert.equal(cfgOf(h).agent_tools, undefined, 'clear drops the key entirely');
+  assert.equal(readFileSync(join(h, '.astro', 'code', 'agents', 'astro-executor.md'), 'utf8'), readFileSync(join(FRAMEWORK, 'agents', 'astro-executor.md'), 'utf8'),
+    'the installed agent is back to the shipped file');
+});
+
+test('ac agent-tools refuses a non-MCP name, an unknown agent and a broken config file, changing nothing', () => {
+  const h = home({ astrokit: { token: 'secret' } });
+  assert.equal(install(h).status, 0);
+  const before = readFileSync(join(h, '.astro', 'config.json'), 'utf8');
+  const bad = acIn(h, ['agent-tools', 'add', 'astro-verifier', 'Write']);
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stderr, /"Write" is not an MCP tool/);
+  const unknown = acIn(h, ['agent-tools', 'add', 'astro-nope', LEAN[0]]);
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /no such agent: astro-nope/);
+  assert.equal(readFileSync(join(h, '.astro', 'config.json'), 'utf8'), before, 'nothing was written');
+
+  const broken = home('{ "astrokit": { "token": "secret" ');
+  const r = acIn(broken, ['agent-tools', 'add', '*', LEAN[0]]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /not valid JSON — fix it first; nothing was changed/);
+  assert.equal(readFileSync(join(broken, '.astro', 'config.json'), 'utf8'), '{ "astrokit": { "token": "secret" ', 'a broken file is never overwritten');
+});
+
+test('ac agent-tools lists what each agent gets, as text and as JSON', () => {
+  const h = home({ agent_tools: { '*': [LEAN[0]], 'astro-executor': [LEAN[1]] } });
+  const r = acIn(h, ['agent-tools']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /astro-executor\s+mcp__lean-ctx__ctx_read, mcp__lean-ctx__ctx_search/);
+  const j = JSON.parse(acIn(h, ['agent-tools', '--json']).stdout);
+  assert.deepEqual(j.config, { '*': [LEAN[0]], 'astro-executor': [LEAN[1]] });
+  assert.deepEqual(j.agents['astro-executor'], LEAN);
+  assert.ok(Array.isArray(j.agentNames) && j.agentNames.includes('astro-verifier'));
+  assert.equal(acIn(home(), ['agent-tools']).stdout.includes('no extra tools'), true);
+});
+
+test('/astro-config configures agent tools from the session\'s own tool list — the user never types a name', () => {
+  const md = readFileSync(join(FRAMEWORK, 'commands', 'astro-config.md'), 'utf8');
+  assert.match(md, /ac agent-tools add/, 'applies through the CLI, never by editing JSON');
+  assert.match(md, /mcp__/, 'names the MCP tool prefix to look for');
+  assert.match(md, /read-only/i, 'recommends read-only tools by default');
+  assert.match(md, /AskUserQuestion/);
+});
