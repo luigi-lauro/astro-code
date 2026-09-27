@@ -95,7 +95,12 @@ test('C2 / ADR-030: lib/, bin/ and workflows/ never reference forge — the engi
     for (const rel of readdirSync(base, { recursive: true })) {
       const full = join(base, rel);
       if (!statSync(full).isFile()) continue;
-      const text = readFileSync(full, 'utf8');
+      let text = readFileSync(full, 'utf8');
+      // #93 — lib/agenttools.mjs passes user-listed MCP tool names through to the agents'
+      // `tools:` line, so it must spell the generic prefix: the `mcp__<server>…` placeholder
+      // and the validating regex. Only those generic forms are exempt — a concrete server
+      // name in that file (or `mcp__` anywhere else in the engine) is still a leak.
+      if (rel === 'agenttools.mjs') text = text.replace(/mcp__<server>(__<tool>)?/g, '').replace(/\^mcp__\[/g, '');
       if (ENGINE_SOURCE_LEAK.test(text)) offenders.push(join(d, rel));
     }
   }

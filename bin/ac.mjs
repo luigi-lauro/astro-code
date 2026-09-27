@@ -18,6 +18,20 @@ function effectiveConfig(cfg) {
   const s = localModelSession();
   return s.local ? { ...cfg, models: sessionModels(), reasoning: {} } : cfg;
 }
+// #93 — one line for what `agent_tools` in ~/.astro/config.json added, warnings on stderr.
+function reportAgentTools(res) {
+  const at = res && res.agentTools;
+  if (!at) return;
+  for (const w of at.warnings) console.error(`⚠ ${w}`);
+  if (at.extended.length) console.log(`✓ agent tools from ~/.astro/config.json: ${at.extended.length} agent(s) extended (${at.extended.join(', ')})`);
+  // A self-hosted config dir reads agents/ straight from the source checkout, not from
+  // ~/.astro/code — the merged copies never reach it, and that must not be silent.
+  if (at.extended.length) {
+    for (const t of (res.targets || []).filter((x) => x.selfHosted)) {
+      console.log(`  • ${t.dir} reads the agents from the source checkout itself — agent_tools does not apply there`);
+    }
+  }
+}
 function noteLocalModel() {
   const s = localModelSession();
   if (s.local) console.error(`• local model (${s.why}) — every agent runs on the session's model, no reasoning effort`);
@@ -2631,6 +2645,7 @@ async function main() {
         const who = t.hostLabel ? `${t.hostLabel} ` : '';
         console.log(`✓ ${who}→ ${t.dir}  [${t.label}]  (${t.commands} cmds, ${t.agents} agents${hk})`);
       }
+      reportAgentTools(res);
       console.log('  after pulling updates, refresh the global CLI: npm install -g .');
       return;
     }
@@ -2700,6 +2715,7 @@ async function main() {
       // re-runs the worker when the cache is missing).
       rmSync(join(ASTRO_HOME, 'update-check.json'), { force: true });
       console.log(`✓ installed → ${res.home} (${res.commands} cmds, ${res.agents} agents, ${res.workflows} workflows, ${res.hooks} hooks) across ${res.targets.length} config dir(s)`);
+      reportAgentTools(res);
       let version = '?';
       try { version = (JSON.parse(readFileSync(join(clone, 'package.json'), 'utf8')) || {}).version || '?'; } catch { /* ignore */ }
       console.log(`✓ astro-code is now at v${version} — restart Claude Code if the command list doesn't refresh`);

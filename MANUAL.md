@@ -64,6 +64,28 @@ on systems where `/home` is a link (`/var/home` on Fedora Silverblue, Bazzite an
 ostree distros) only the resolved form matches. Don't copy the scripts into the project
 instead — a local copy silently goes stale after `ac update`.
 
+### Extra tools for astro-code's agents
+
+Each shipped agent has a fixed `tools:` list, and Claude Code enforces it, so an astro agent
+can't call an MCP tool astro-code didn't list, such as lean-ctx's read-only `ctx_read`. To
+add MCP tools, list them in **`~/.astro/config.json`**, keyed by agent name, with `*`
+meaning every agent:
+
+```json
+{ "agent_tools": {
+    "*": ["mcp__lean-ctx__ctx_read", "mcp__lean-ctx__ctx_search", "mcp__lean-ctx__ctx_tree", "mcp__lean-ctx__ctx_glob"],
+    "astro-executor": ["mcp__lean-ctx__ctx_edit"]
+} }
+```
+
+`ac install` and `ac update` merge them into each agent's `tools:` line every time, so the
+setting survives updates where a hand edit would not. It's per user, not per project,
+because the agents are installed once per machine. Only MCP tool names (`mcp__<server>` or
+`mcp__<server>__<tool>`) are accepted, so a role's built-in permissions stay as designed:
+the verifier can't be given `Write` this way. A bad entry is reported and skipped; it never
+breaks an install. A config dir whose `agents/` *is* the source checkout (a self-hosted dev
+setup) reads the shipped files directly, and `ac install` says so.
+
 ### Windows / PowerShell
 
 `ac` is shadowed by PowerShell's built-in `Add-Content` alias (aliases beat external
