@@ -56,7 +56,7 @@ devs never collide.
 - `ac models fast` — persist the fast profile (sonnet everywhere except the opus verify gate)
 - `ac models balanced` (default) · `ac models max` (all opus) · `ac models` (show current)
 - one-off without persisting: `/astro-plan <n> --fast` or `/astro-execute <n> --fast`
-- `/astro-config` — pick tiers interactively
+- `/astro-config` — pick tiers interactively; `/astro-config tools` — let the agents use extra MCP tools (e.g. lean-ctx), picked from the ones your session has
 - resilience for long runs: launch with `claude --fallback-model sonnet`
 - on a **local model** (Claude Code pointed at e.g. Qwen) every agent runs on the session's model automatically — `ac status` shows it; `ASTRO_LOCAL_MODEL=1|0` forces it
 

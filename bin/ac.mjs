@@ -5,7 +5,7 @@ import process from 'node:process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, join, dirname, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findRoot, paths } from '../lib/paths.mjs';
 import { initPlanning, phaseContextStatus, contextAuthor } from '../lib/planning.mjs';
@@ -65,7 +65,8 @@ import { completeMilestone, belongsToMilestone } from '../lib/milestone.mjs';
 import { recordSurprise } from '../lib/surprises.mjs';
 import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
-import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME } from '../lib/install.mjs';
+import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames } from '../lib/install.mjs';
+import { readAgentTools, updateAgentTools } from '../lib/agenttools.mjs';
 import { applyTune, undoTune, tuneTarget, UNTUNABLE } from '../lib/tune.mjs';
 import { collectStats } from '../lib/stats.mjs';
 import { writeAgentsMd } from '../lib/agentsmd.mjs';
@@ -155,6 +156,10 @@ const ALLOWED_FLAGS = {
   'milestone new': ['name', 'vision', 'planned', 'number'],
   'milestone activate': [],
   'milestone rename': [],
+  'agent-tools': ['json'],
+  'agent-tools add': [],
+  'agent-tools remove': [],
+  'agent-tools clear': [],
   // #63 — the text is an argument, not a flag: `--note` (what `backlog add` takes) used to
   // be ignored here and the call read the note instead of writing it.
   'backlog note': [],
@@ -344,6 +349,9 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
                                        (--number N: one-time repair when phases already reference N)
   ac milestone activate <n>           move the project into a planned milestone
   ac milestone rename <n> "<name>"    correct a claimed milestone's name (any status; name only)
+  ac agent-tools [--json]             extra MCP tools each astro agent may use (~/.astro/config.json)
+  ac agent-tools add|remove <agent|*> <MCP tool…>  change them — applied to the installed agents at once
+  ac agent-tools clear [<agent|*>]    drop them (all, or one agent's)
   ac milestone check "<name>"         see if a milestone with a similar name exists
   ac milestone complete [--force]     archive the current milestone + retire its claims
                                        (refuses while a phase is not complete; --force overrides)
@@ -2647,6 +2655,45 @@ async function main() {
       }
       reportAgentTools(res);
       console.log('  after pulling updates, refresh the global CLI: npm install -g .');
+      return;
+    }
+
+    case 'agent-tools': {
+      // #93 — extra MCP tools for astro-code's agents, per user (~/.astro/config.json). The
+      // only writer of that key: validated, other keys preserved, applied to the installed
+      // agents at once. /astro-config drives this from the session's own tool list.
+      const names = agentNames(FRAMEWORK_ROOT);
+      const sub = pos[0];
+      if (!sub || sub === 'list') {
+        checkFlags('agent-tools', flags);
+        const at = readAgentTools({ agents: names });
+        let config = {};
+        try { config = (JSON.parse(readFileSync(join(homedir(), '.astro', 'config.json'), 'utf8')) || {}).agent_tools || {}; } catch { /* reported below */ }
+        const perAgent = Object.fromEntries(names.map((n) => [n, at.forAgent(n)]));
+        if (flags.json) { json({ config, agents: perAgent, agentNames: names, warnings: at.warnings }); return; }
+        for (const w of at.warnings) console.error(`⚠ ${w}`);
+        if (!Object.values(perAgent).some((l) => l.length)) {
+          console.log('• no extra tools for the agents — add some with `ac agent-tools add <agent|*> <MCP tool name>` or /astro-config');
+          return;
+        }
+        for (const [n, list] of Object.entries(perAgent)) console.log(`  ${n.padEnd(22)} ${list.length ? list.join(', ') : '—'}`);
+        return;
+      }
+      if (!['add', 'remove', 'clear'].includes(sub)) die('usage: ac agent-tools [list|add <agent|*> <tool…>|remove <agent|*> <tool…>|clear [<agent|*>]] [--json]');
+      checkFlags(`agent-tools ${sub}`, flags);
+      const target = pos[1];
+      const tools = pos.slice(2);
+      if (sub !== 'clear' && (!target || !tools.length)) die(`usage: ac agent-tools ${sub} <agent|*> <MCP tool name>…`);
+      const res = updateAgentTools({ agents: names, op: sub, target, tools });
+      if (!res.ok) die(res.error);
+      if (!existsSync(join(ASTRO_HOME, 'agents'))) {
+        console.log('✓ saved to ~/.astro/config.json — astro-code is not installed yet; `ac install` applies it');
+        return;
+      }
+      const applied = refreshAgents(FRAMEWORK_ROOT);
+      for (const w of applied.warnings) console.error(`⚠ ${w}`);
+      console.log(`✓ saved to ~/.astro/config.json and applied: ${applied.extended.length} agent(s) extended${applied.extended.length ? ` (${applied.extended.join(', ')})` : ''}`);
+      console.log('  new sessions pick it up — restart Claude Code for a session already running');
       return;
     }
 
