@@ -67,9 +67,22 @@ instead — a local copy silently goes stale after `ac update`.
 ### Extra tools for astro-code's agents
 
 Each shipped agent has a fixed `tools:` list, and Claude Code enforces it, so an astro agent
-can't call an MCP tool astro-code didn't list, such as lean-ctx's read-only `ctx_read`. To
-add MCP tools, list them in **`~/.astro/config.json`**, keyed by agent name, with `*`
-meaning every agent:
+can't call an MCP tool astro-code didn't list, such as lean-ctx's read-only `ctx_read`.
+
+**The easy way: `/astro-config tools`.** It lists the MCP servers your session actually has,
+recommends their read-only tools, asks which agents get them, and applies your choice. You
+never type a tool name. From a shell, `ac agent-tools` does the same by hand:
+
+```bash
+ac agent-tools                                   # what each agent gets now (--json too)
+ac agent-tools add '*' mcp__lean-ctx__ctx_read   # every agent; or name one, e.g. astro-executor
+ac agent-tools remove '*' mcp__lean-ctx__ctx_read
+ac agent-tools clear                             # drop them all
+```
+
+Each change is validated, keeps every other key in the file, and is applied to the installed
+agents at once. Restart a Claude Code session that is already running to pick it up.
+Underneath, it is one key in **`~/.astro/config.json`**:
 
 ```json
 { "agent_tools": {
