@@ -181,8 +181,9 @@ const pad = ' '.repeat(visibleWidth(dot));
 const rowWidth = cols ? Math.max(1, cols - visibleWidth(dot)) : 0;
 
 // A roomy terminal keeps the single line it has always had. Anything narrower
-// gets two rows — identity on the first, everything else on the second. Two
-// readable rows beat one crammed row: we do NOT shave the phase slug down just
+// gets rows — identity (with the phase state when it fits) on the first, the
+// state on a row of its own when it does not, everything else after. Readable
+// rows beat one crammed row: we do NOT shave the phase slug down just
 // to avoid wrapping, only enough that a row never has to be sliced.
 // The track shrinks by showing fewer upcoming phases, never by slicing.
 const lookahead = cols === 0 || cols >= 110 ? 3 : cols >= 70 ? 2 : 1;
@@ -199,8 +200,10 @@ const cacheRow = data
   ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: cols === 0 || cols >= 130 ? 'full' : 'compact' })
   : '';
 
-// Phase state rides with the identity when there's room, and drops to the next
-// row when there isn't — rather than being silently dropped for lack of space.
+// Phase state rides with the identity when there's room, and gets a row of its
+// own when there isn't — rather than being silently dropped for lack of space,
+// and without leading the next row, where `fitRow` would drop the model, quota
+// and branch behind a long state (an open fix, debt, a principles nudge).
 const stateFitsRow1 = !rowWidth ||
   visibleWidth([identity, state].filter(Boolean).join(STATUS_SEP)) <= rowWidth;
 
@@ -248,9 +251,9 @@ const lines = packStatus({
   wide: [base, claude, rateLimitsFull, cacheWide, project, branchWide, update],
   groups: [
     // where am I — the answer the statusline exists to give, never sliced
-    stateFitsRow1 ? [identity, state] : [identity],
+    ...(stateFitsRow1 ? [[identity, state]] : [[identity], [state]]),
     // cache sits after quota: a quota limit stops you, a cold cache only costs you.
-    stateFitsRow1 ? [claude, rateLimitsRow, cacheRow, branch] : [state, claude, rateLimitsRow, cacheRow, branch],
+    [claude, rateLimitsRow, cacheRow, branch],
     [base, update],
   ],
   width: rowWidth,
