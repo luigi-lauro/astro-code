@@ -70,6 +70,30 @@ except ImportError:  # pragma: no cover - depends on the host env
 if os.environ.get("KIT_TEST_NO_PYYAML") == "1":
     _pyyaml = None
 
+if _pyyaml is not None:
+    class _UniqueKeySafeLoader(_pyyaml.SafeLoader):
+        """SafeLoader that rejects a duplicated mapping key, as astro's `yaml`
+        parser does ("Map keys must be unique") — PyYAML otherwise keeps the
+        last value silently, so offline would accept what the server 422s."""
+
+        def construct_mapping(self, node, deep=False):
+            if isinstance(node, _pyyaml.MappingNode):
+                seen = set()
+                for key_node, _value in node.value:
+                    if key_node.tag == "tag:yaml.org,2002:merge":
+                        continue
+                    key = self.construct_object(key_node, deep=deep)
+                    try:
+                        duplicate = key in seen
+                    except TypeError:  # unhashable key — PyYAML rejects it below
+                        continue
+                    if duplicate:
+                        raise _pyyaml.constructor.ConstructorError(
+                            "while constructing a mapping", node.start_mark,
+                            f"found duplicate key {key!r}", key_node.start_mark)
+                    seen.add(key)
+            return super().construct_mapping(node, deep=deep)
+
 
 # ── Result model ──────────────────────────────────────────────────────────
 
@@ -317,7 +341,8 @@ _TABLE_FIELDS = {"purpose", "kind", "grain", "rows", "columns", "rules"}
 _COLUMN_FIELDS = {"meaning", "type", "key", "joins", "unit", "tz", "values", "sensitive"}
 
 
-def _yaml_min_scalar(v: str):
+def _yaml_min_plain(v: str):
+    """Type a plain (unquoted) scalar: int, true/false, empty -> None."""
     v = v.strip()
     if v == "":
         return None
@@ -325,14 +350,202 @@ def _yaml_min_scalar(v: str):
         return True
     if v.lower() == "false":
         return False
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
-        return v[1:-1]
     if _INT_RE.match(v):
         return int(v)
-    if v.startswith("[") and v.endswith("]"):
-        inner = v[1:-1].strip()
-        return [] if inner == "" else [_yaml_min_scalar(x) for x in inner.split(",")]
     return v
+
+
+def _yaml_min_scalar(v: str):
+    v = v.strip()
+    if v.startswith("{") or v.startswith("["):
+        return _yaml_min_flow(v)
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        return v[1:-1]
+    return _yaml_min_plain(v)
+
+
+def _yaml_min_flow(text: str):
+    """Single-line flow collection: `{}`, `[]`, `{a: 1, b: 'x, y'}`,
+    `[a, "b, c"]`, nested. Quoted scalars may contain `,:[]{}`; a duplicate
+    key is rejected. Anything else (e.g. a flow spanning lines) raises."""
+    n = len(text)
+
+    def ws(i: int) -> int:
+        while i < n and text[i] in " \t":
+            i += 1
+        return i
+
+    def quoted(i: int) -> tuple[str, int]:
+        q = text[i]
+        out: list[str] = []
+        i += 1
+        while i < n:
+            ch = text[i]
+            if q == "'" and ch == "'":
+                if i + 1 < n and text[i + 1] == "'":
+                    out.append("'")
+                    i += 2
+                    continue
+                return "".join(out), i + 1
+            if q == '"' and ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if q == '"' and ch == '"':
+                return "".join(out), i + 1
+            out.append(ch)
+            i += 1
+        raise SourceSchemaParseError(f"unterminated quoted scalar in flow collection {text[:60]!r}")
+
+    def plain(i: int) -> tuple[object, int]:
+        # A plain scalar ends at a flow indicator or a ': ' key separator.
+        start = i
+        while i < n:
+            ch = text[i]
+            if ch in ",[]{}":
+                break
+            if ch == ":" and (i + 1 >= n or text[i + 1] in " ,[]{}"):
+                break
+            i += 1
+        return _yaml_min_plain(text[start:i]), i
+
+    def value(i: int) -> tuple[object, int]:
+        i = ws(i)
+        if i >= n:
+            raise SourceSchemaParseError(f"incomplete flow collection {text[:60]!r}")
+        ch = text[i]
+        if ch == "{":
+            return mapping(i)
+        if ch == "[":
+            return sequence(i)
+        if ch in ('"', "'"):
+            return quoted(i)
+        return plain(i)
+
+    def mapping(i: int) -> tuple[dict, int]:
+        out: dict = {}
+        i = ws(i + 1)
+        while True:
+            if i >= n:
+                raise SourceSchemaParseError(f"unterminated flow mapping {text[:60]!r}")
+            if text[i] == "}":
+                return out, i + 1
+            key, i = value(i)
+            i = ws(i)
+            val = None
+            if i < n and text[i] == ":":
+                i = ws(i + 1)
+                if i < n and text[i] not in ",}":
+                    val, i = value(i)
+                    i = ws(i)
+            try:
+                duplicate = key in out
+            except TypeError:
+                raise SourceSchemaParseError(f"unsupported flow mapping key in {text[:60]!r}")
+            if duplicate:
+                raise SourceSchemaParseError(f"duplicate key {key!r} in flow mapping")
+            out[key] = val
+            if i < n and text[i] == ",":
+                i = ws(i + 1)
+            elif i < n and text[i] == "}":
+                continue
+            else:
+                raise SourceSchemaParseError(f"expected ',' or '}}' in flow mapping {text[:60]!r}")
+
+    def sequence(i: int) -> tuple[list, int]:
+        out: list = []
+        i = ws(i + 1)
+        while True:
+            if i >= n:
+                raise SourceSchemaParseError(f"unterminated flow sequence {text[:60]!r}")
+            if text[i] == "]":
+                return out, i + 1
+            item, i = value(i)
+            out.append(item)
+            i = ws(i)
+            if i < n and text[i] == ",":
+                i = ws(i + 1)
+            elif i < n and text[i] == "]":
+                continue
+            else:
+                raise SourceSchemaParseError(f"expected ',' or ']' in flow sequence {text[:60]!r}")
+
+    result, end = value(0)
+    if ws(end) != n:
+        raise SourceSchemaParseError(f"unexpected content after flow collection {text[:60]!r}")
+    return result
+
+
+_BLOCK_SCALAR_RE = re.compile(r"^([|>])(?:([+-])([1-9])?|([1-9])([+-])?)?$")
+
+
+def _yaml_min_block_scalar(header: str, lines: list[str], i: int, n: int, parent_indent: int) -> tuple[str, int]:
+    """Read a `|`/`>` block scalar (clip/strip/keep chomping, optional
+    indentation indicator) whose content starts at lines[i]. Content lines
+    are taken raw — a '#' inside is text, not a comment."""
+    m = _BLOCK_SCALAR_RE.match(header)
+    style = m.group(1)
+    chomp = m.group(2) or m.group(5) or ""
+    explicit = m.group(3) or m.group(4)
+
+    def indent_of(s: str) -> int:
+        return len(s) - len(s.lstrip(" "))
+
+    if explicit:
+        block_indent = parent_indent + int(explicit)
+    else:
+        k = i
+        while k < n and not lines[k].strip():
+            k += 1
+        block_indent = indent_of(lines[k]) if k < n else parent_indent + 1
+    if block_indent <= parent_indent:
+        block_indent = parent_indent + 1
+
+    body: list[str] = []
+    while i < n:
+        ln = lines[i]
+        if not ln.strip():
+            body.append(ln[block_indent:] if len(ln) > block_indent else "")
+            i += 1
+            continue
+        if indent_of(ln) < block_indent:
+            break
+        body.append(ln[block_indent:])
+        i += 1
+
+    trailing = 0
+    while body and body[-1] == "":
+        body.pop()
+        trailing += 1
+
+    if style == "|":
+        content = "\n".join(body)
+    else:
+        content = ""
+        pending = 0
+        prev_kind = None
+        for ln in body:
+            if ln == "":
+                pending += 1
+                continue
+            kind = "more" if ln[0] in " \t" else "text"
+            if prev_kind is None:
+                content += "\n" * pending
+            elif prev_kind == "text" and kind == "text":
+                content += " " if pending == 0 else "\n" * pending
+            else:
+                content += "\n" * (pending + 1)
+            content += ln
+            prev_kind = kind
+            pending = 0
+
+    if not body:
+        return ("\n" * trailing if chomp == "+" else ""), i
+    if chomp == "-":
+        return content, i
+    if chomp == "+":
+        return content + "\n" + "\n" * trailing, i
+    return content + "\n", i
 
 
 def _yaml_min_split_key_value(s: str, lineno: int) -> tuple[str, str]:
@@ -380,6 +593,11 @@ def _yaml_min_block(lines: list[str], i: int, n: int, base_indent: int) -> tuple
         if not isinstance(key, str):
             key = key_raw.strip()
         rest = rest.strip()
+        if key in result:
+            raise SourceSchemaParseError(f"line {i + 1}: duplicate key {key!r}")
+        if _BLOCK_SCALAR_RE.match(rest):
+            result[key], i = _yaml_min_block_scalar(rest, lines, i + 1, n, base_indent)
+            continue
         if rest != "":
             result[key] = _yaml_min_scalar(rest)
             i += 1
@@ -423,16 +641,24 @@ def _yaml_min_list(lines: list[str], i: int, n: int, item_indent: int) -> tuple[
         s = raw.strip()
         if not s.startswith("- "):
             break
-        items.append(_yaml_min_scalar(s[2:]))
+        item = s[2:].strip()
+        if _BLOCK_SCALAR_RE.match(item):
+            value, i = _yaml_min_block_scalar(item, lines, i + 1, n, item_indent)
+            items.append(value)
+            continue
+        items.append(_yaml_min_scalar(item))
         i += 1
     return items, i
 
 
 def parse_yaml_min_nested(text: str) -> dict:
     """Restricted block-style YAML reader for schema.yaml: nested mappings,
-    block/flow lists of scalars, quoted/plain scalars, ints, true/false and
-    comments. Anything else raises SourceSchemaParseError — never a silent
-    skip, never a traceback."""
+    block lists, single-line flow collections (`{}`, `[]`, `{a: b}`,
+    `[a, b]`), `|`/`>` block scalars, quoted/plain scalars, ints,
+    true/false and comments. A duplicate key is rejected. Anything else
+    raises SourceSchemaParseError — never a silent skip, never a traceback."""
+    if text.startswith("\ufeff"):
+        text = text[1:]
     lines = text.splitlines()
     n = len(lines)
     i = 0
@@ -453,7 +679,7 @@ def parse_yaml_min_nested(text: str) -> dict:
 def load_source_schema_yaml(text: str) -> tuple[dict, str]:
     """Return (data, parser_name). PyYAML wins when available (decision 2)."""
     if _pyyaml is not None:
-        data = _pyyaml.safe_load(text)
+        data = _pyyaml.load(text, Loader=_UniqueKeySafeLoader)
         if not isinstance(data, dict):
             raise SourceSchemaParseError("schema.yaml did not parse to a mapping")
         return (data, "PyYAML")
@@ -696,9 +922,11 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
             return False, f"'{literal}' is not a valid int literal"
         n = int(literal)
         bounds = types.get(name.lower(), {}).get("bounds", {})
-        if "min" in bounds and n < bounds["min"]:
+        # int(), never float: bigint's bounds are decimal strings in the
+        # shared JSON (a JSON number cannot carry 2^63 exactly into JS).
+        if "min" in bounds and n < int(bounds["min"]):
             return False, f"'{literal}' is below the minimum for {name}"
-        if "max" in bounds and n > bounds["max"]:
+        if "max" in bounds and n > int(bounds["max"]):
             return False, f"'{literal}' is above the maximum for {name}"
         return True, literal
     if kind == "bit":
@@ -1114,16 +1342,18 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
         # exactly as it does on the server (SRC-05/SRC-04 zip convention).
         names = set(os.listdir(src_dir)) if src_dir.is_dir() else set()
 
+        # Files are read as utf-8-sig: a leading BOM is dropped exactly as
+        # astroport's TextDecoder (fflate strFromU8) drops it server-side.
         # ── SRC-04: SOURCE.md present and non-empty ──
         if "SOURCE.md" not in names:
             rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md missing")
-        elif not (src_dir / "SOURCE.md").read_text(encoding="utf-8").strip():
+        elif not (src_dir / "SOURCE.md").read_text(encoding="utf-8-sig").strip():
             rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md is empty")
 
         if "schema.yaml" not in names:
             rep.fail("sources", "SRC-05", f"{source_id}: schema.yaml missing")
             continue
-        text = (src_dir / "schema.yaml").read_text(encoding="utf-8")
+        text = (src_dir / "schema.yaml").read_text(encoding="utf-8-sig")
         try:
             data, _parser = load_source_schema_yaml(text)
         except Exception as exc:  # SourceSchemaParseError or a PyYAML error
@@ -1141,7 +1371,7 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
         if queries_dir.is_dir():
             query_files = sorted(p for p in queries_dir.iterdir() if p.is_file() and p.suffix.lower() == ".sql")
             for qfile in query_files:
-                qtext = qfile.read_text(encoding="utf-8")
+                qtext = qfile.read_text(encoding="utf-8-sig")
                 qerrors, _query = check_named_query(source_id, qfile.name, qtext)
                 for check, sid, file, msg in qerrors:
                     rep.fail("sources", check, f"{sid}: {file}: {msg}")

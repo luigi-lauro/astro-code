@@ -155,3 +155,75 @@ test('the untouched demo kit (no sources) still passes', { skip: !hasPython }, (
   assert.equal(res.status, 0, res.out);
   rmSync(dir, { recursive: true, force: true });
 });
+
+// ── Phase 102 r1 (C4/C5): the fallback parser covers the YAML forms PyYAML
+// and astro's `yaml` accept, and both offline parsers reject duplicate keys.
+
+const R1_FORMS = [
+  ['folded block scalar', 'a:\n  purpose: >\n    Order header\n    records, one per order\n\n    second para\n  next: x\n'],
+  ['literal block scalar', 'a:\n  purpose: |\n    line one\n      indented # not a comment\n    line three\n'],
+  ['chomping strip/keep', 'a: |-\n  stripped\nb: >+\n  kept\n\nc: >-\n  x\n'],
+  ['block scalar in a list', 'rules:\n  - >-\n    Totals exclude\n    cancelled lines\n  - plain\n'],
+  ['empty flow collections', 'tables: {}\nrules: []\n'],
+  ['flow mapping', "col: {meaning: Primary key, type: int, key: true}\nvalues: {O: Open, C: 'Closed, final', D: \"it''s\"}\n"],
+  ['flow sequence', 'rules: [a, "b, c", \'d\', 12, true]\nnested: {x: [1, 2], y: {z: w}}\n'],
+];
+
+test('the fallback parser agrees with PyYAML on the r1 YAML forms', { skip: !hasYaml }, () => {
+  const script = `
+import sys, json
+sys.path.insert(0, ${JSON.stringify(join(ROOT, 'templates/kit/tools'))})
+import kit_test, yaml
+for label, text in json.loads(${JSON.stringify(JSON.stringify(R1_FORMS))}):
+    builtin = kit_test.parse_yaml_min_nested(text)
+    pyyaml = yaml.safe_load(text)
+    assert builtin == pyyaml, (label, builtin, pyyaml)
+print("OK")
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+});
+
+test('the fallback parser reads the r1 YAML forms (no PyYAML needed)', { skip: !hasPython }, () => {
+  const script = `
+import sys, json
+sys.path.insert(0, ${JSON.stringify(join(ROOT, 'templates/kit/tools'))})
+import kit_test
+forms = dict(json.loads(${JSON.stringify(JSON.stringify(R1_FORMS))}))
+p = kit_test.parse_yaml_min_nested
+assert p(forms['folded block scalar'])['a'] == {'purpose': 'Order header records, one per order\\nsecond para\\n', 'next': 'x'}
+assert p(forms['literal block scalar'])['a']['purpose'] == 'line one\\n  indented # not a comment\\nline three\\n'
+assert p(forms['chomping strip/keep']) == {'a': 'stripped', 'b': 'kept\\n\\n', 'c': 'x'}
+assert p(forms['block scalar in a list']) == {'rules': ['Totals exclude cancelled lines', 'plain']}
+assert p(forms['empty flow collections']) == {'tables': {}, 'rules': []}
+assert p(forms['flow mapping'])['values'] == {'O': 'Open', 'C': 'Closed, final', 'D': "it''s"}
+assert p(forms['flow sequence'])['rules'] == ['a', 'b, c', 'd', 12, True]
+assert p('\\ufeffversion: 1\\n') == {'version': 1}
+print("OK")
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+});
+
+for (const noPyyaml of [false, true]) {
+  const label = noPyyaml ? 'builtin' : 'PyYAML';
+  test(`load_source_schema_yaml rejects duplicate keys (${label})`, { skip: !hasPython || (!noPyyaml && !hasYaml) }, () => {
+    const script = `
+import sys
+sys.path.insert(0, ${JSON.stringify(join(ROOT, 'templates/kit/tools'))})
+import kit_test
+if ${noPyyaml ? 'True' : 'False'}:
+    kit_test._pyyaml = None
+for text in ['a: 1\\na: 2\\n', 'a:\\n  b: 1\\n  b: 2\\n', 'a: {b: 1, b: 2}\\n']:
+    try:
+        kit_test.load_source_schema_yaml(text)
+    except Exception as exc:
+        assert 'duplicate' in str(exc).lower(), (text, exc)
+    else:
+        raise AssertionError('accepted duplicate key: ' + repr(text))
+print("OK")
+`;
+    const res = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+  });
+}

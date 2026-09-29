@@ -128,9 +128,10 @@ tables:
   query time.
 - A `joins` target that is not declared in this file is a WARNING, never a rejection —
   joining to another kit's or another source's table is legitimate.
-- Use **block-style YAML** and literal `true`/`false` — the offline tool's fallback
-  parser (used when PyYAML is unavailable) only reads that subset, and both parsers must
-  agree on every kit.
+- Use **block-style YAML** (block scalars `|`/`>` and single-line flow collections such
+  as `{}`, `[]`, `{meaning: Key, type: int}` are fine) and literal `true`/`false` — the
+  offline tool's fallback parser (used when PyYAML is unavailable) only reads that subset,
+  and both parsers must agree on every kit. A duplicated key is rejected (SRC-06).
 
 ### Named queries (`src/sources/<id>/queries/<name>.sql`)
 
@@ -173,7 +174,7 @@ Case-insensitive (`NVARCHAR(MAX)` = `nvarchar(max)`); a type is one token, no wh
 |---|---|
 | `bit` | none |
 | `tinyint` / `smallint` / `int` | none (bounded: 0..255 / -32768..32767 / int32) |
-| `bigint` | none |
+| `bigint` | none (bounded: int64) |
 | `decimal(p[,s])` / `numeric(p[,s])` | precision 1..38, scale 0..precision |
 | `money` / `smallmoney` | none |
 | `float` / `real` | none |

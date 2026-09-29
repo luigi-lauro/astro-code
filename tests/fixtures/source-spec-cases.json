@@ -928,6 +928,182 @@
         "ok": false,
         "check": "SRC-10"
       }
+    },
+    {
+      "name": "schema-yaml-folded-block-scalar",
+      "criteria": "C4/C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: >\n      Order header\n      records, one per order\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-yaml-literal-block-scalar",
+      "criteria": "C4/C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: |\n      Order header records.\n      One row per order.\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-yaml-block-scalar-chomping",
+      "criteria": "C4/C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: |-\n      Order header records\n    grain: >+\n      one row per order\n\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n    rules:\n      - >-\n        Totals exclude\n        cancelled lines\n      - plain rule\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-yaml-empty-tables",
+      "criteria": "C4/C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables: {}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-yaml-flow-mapping",
+      "criteria": "C4/C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId: {meaning: Primary key, type: int, key: true}\n      Status:\n        meaning: Order status\n        values: {O: Open, C: 'Closed, final'}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-yaml-flow-sequence",
+      "criteria": "C4/C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    rules: [Totals include tax, \"Dates are UTC, always\"]\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-yaml-empty-flow-sequence",
+      "criteria": "C4/C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    rules: []\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-yaml-duplicate-key",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    purpose: Again\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-duplicate-table-key",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n  dbo.Orders:\n    purpose: Again\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-duplicate-key-flow",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId: {meaning: Primary key, meaning: Again}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-bom",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/schema.yaml": "\ufeffversion: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-bom",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "\ufeff-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-bom-only",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\ufeff\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "param-default-bigint-max",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=9223372036854775807\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-bigint-min",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=-9223372036854775808\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-bigint-overflow",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=9223372036854775808\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-bigint-underflow",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=-9223372036854775809\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
     }
   ]
 }

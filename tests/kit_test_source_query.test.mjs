@@ -201,3 +201,22 @@ WHERE CustomerId = @CustomerId AND Status = @Status AND Since <= @Since AND 1 <=
   assert.equal(res.status, 0, res.out);
   rmSync(dir, { recursive: true, force: true });
 });
+
+// ── Phase 102 r1 (C12): bigint defaults are range-checked with exact ints ──
+
+test('parse_default_literal range-checks bigint exactly', { skip: !hasPython }, () => {
+  const script = `
+import sys
+sys.path.insert(0, ${JSON.stringify(TOOLS_DIR)})
+import kit_test
+assert kit_test.parse_default_literal('bigint', '9223372036854775807')[0]
+assert kit_test.parse_default_literal('bigint', '-9223372036854775808')[0]
+assert not kit_test.parse_default_literal('bigint', '9223372036854775808')[0]
+assert not kit_test.parse_default_literal('bigint', '-9223372036854775809')[0]
+assert kit_test.parse_default_literal('int', '2147483647')[0]
+assert not kit_test.parse_default_literal('int', '2147483648')[0]
+print("OK")
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+});

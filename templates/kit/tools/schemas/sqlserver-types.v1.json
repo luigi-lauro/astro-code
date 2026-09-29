@@ -5,7 +5,7 @@
     { "name": "tinyint", "args": "none", "literal": "int", "bounds": { "min": 0, "max": 255 } },
     { "name": "smallint", "args": "none", "literal": "int", "bounds": { "min": -32768, "max": 32767 } },
     { "name": "int", "args": "none", "literal": "int", "bounds": { "min": -2147483648, "max": 2147483647 } },
-    { "name": "bigint", "args": "none", "literal": "int" },
+    { "name": "bigint", "args": "none", "literal": "int", "bounds": { "min": "-9223372036854775808", "max": "9223372036854775807" } },
     { "name": "decimal", "args": "precision_scale", "literal": "decimal", "bounds": { "maxPrecision": 38 } },
     { "name": "numeric", "args": "precision_scale", "literal": "decimal", "bounds": { "maxPrecision": 38 } },
     { "name": "money", "args": "none", "literal": "decimal" },
