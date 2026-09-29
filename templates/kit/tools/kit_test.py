@@ -22,6 +22,8 @@ Stdlib-only, matching validate_manifest.py / parity_check.py (no requests,
 no jsondiff). PyYAML is used when importable because it is authoritative,
 but is NOT required — a restricted parser covers the recipe subset the kit
 template emits, and refuses (loudly) to guess at anything outside it.
+The data-source checks (src/sources/<id>/schema.json) never use PyYAML: the
+file is plain JSON, read with the stdlib `json` module.
 
 ## Invocation
 
@@ -69,30 +71,6 @@ except ImportError:  # pragma: no cover - depends on the host env
 # tested, which is how fallbacks rot.
 if os.environ.get("KIT_TEST_NO_PYYAML") == "1":
     _pyyaml = None
-
-if _pyyaml is not None:
-    class _UniqueKeySafeLoader(_pyyaml.SafeLoader):
-        """SafeLoader that rejects a duplicated mapping key, as astro's `yaml`
-        parser does ("Map keys must be unique") — PyYAML otherwise keeps the
-        last value silently, so offline would accept what the server 422s."""
-
-        def construct_mapping(self, node, deep=False):
-            if isinstance(node, _pyyaml.MappingNode):
-                seen = set()
-                for key_node, _value in node.value:
-                    if key_node.tag == "tag:yaml.org,2002:merge":
-                        continue
-                    key = self.construct_object(key_node, deep=deep)
-                    try:
-                        duplicate = key in seen
-                    except TypeError:  # unhashable key — PyYAML rejects it below
-                        continue
-                    if duplicate:
-                        raise _pyyaml.constructor.ConstructorError(
-                            "while constructing a mapping", node.start_mark,
-                            f"found duplicate key {key!r}", key_node.start_mark)
-                    seen.add(key)
-            return super().construct_mapping(node, deep=deep)
 
 
 # ── Result model ──────────────────────────────────────────────────────────
@@ -320,370 +298,73 @@ def parse_recipe_min(text: str) -> dict:
     return doc
 
 
-# ── Phase 102 (a3): PyYAML-optional schema.yaml reader ─────────────────────
-# Mirrors astro's source-schema.ts (t3) and its JSON Schema
-# (schemas/source-schema.v1.schema.json, copied byte-identical here). No
-# patternProperties support in _schema_engine.py, so this is a hand walker
-# over the parsed dict instead of a schema-engine call (recipe-validator
-# precedent). Never skips silently — anything outside the documented
-# block-style subset is an SRC-06 FAIL, in both the PyYAML and builtin path.
+# ── Phase 102: schema.json reader + walker (SRC-06/07) ─────────────────────
+# Mirrors astro's source-schema.ts and its JSON Schema
+# (schemas/source-schema.v1.schema.json, copied byte-identical here). r2
+# (ADR-016): the file is plain JSON, read with the stdlib `json` module —
+# never PyYAML. Parsing is made exactly as strict as the server's: one leading
+# UTF-8 BOM stripped (a second is an error), a duplicate key rejected at any
+# depth (json.loads would silently keep the last value), and NaN/Infinity or
+# a number overflowing to infinity rejected (JSON.parse has no such literals).
+# No patternProperties support in _schema_engine.py, so the shape is checked
+# by a hand walker over the parsed dict that follows the JSON Schema keyword
+# for keyword (Ajv semantics: presence, not truthiness; integral floats count
+# as integers; patterns match the whole string).
 
 class SourceSchemaParseError(Exception):
-    """schema.yaml uses YAML this restricted reader will not guess at."""
+    """schema.json is not strict, plain JSON."""
 
 
 _TABLE_PART = r"(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)"
-_TABLE_KEY_RE = re.compile(rf"^{_TABLE_PART}\.{_TABLE_PART}$")
-_JOIN_RE = re.compile(rf"^{_TABLE_PART}\.{_TABLE_PART}\.{_TABLE_PART}$")
-_INT_RE = re.compile(r"^-?[0-9]+$")
+_TABLE_KEY_RE = re.compile(rf"{_TABLE_PART}\.{_TABLE_PART}")
+_JOIN_RE = re.compile(rf"{_TABLE_PART}\.{_TABLE_PART}\.{_TABLE_PART}")
 
 _TABLE_FIELDS = {"purpose", "kind", "grain", "rows", "columns", "rules"}
 _COLUMN_FIELDS = {"meaning", "type", "key", "joins", "unit", "tz", "values", "sensitive"}
 
 
-def _yaml_min_plain(v: str):
-    """Type a plain (unquoted) scalar: int, true/false, empty -> None."""
-    v = v.strip()
-    if v == "":
-        return None
-    if v.lower() == "true":
-        return True
-    if v.lower() == "false":
-        return False
-    if _INT_RE.match(v):
-        return int(v)
-    return v
+def _reject_duplicate_keys(pairs: list) -> dict:
+    out: dict = {}
+    for key, value in pairs:
+        if key in out:
+            raise SourceSchemaParseError(f"duplicate key {json.dumps(key, ensure_ascii=False)}")
+        out[key] = value
+    return out
 
 
-def _yaml_min_scalar(v: str):
-    v = v.strip()
-    if v.startswith("{") or v.startswith("["):
-        return _yaml_min_flow(v)
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
-        return v[1:-1]
-    return _yaml_min_plain(v)
+def _reject_constant(name: str):
+    raise SourceSchemaParseError(f"{name} is not valid JSON")
 
 
-def _yaml_min_flow(text: str):
-    """Single-line flow collection: `{}`, `[]`, `{a: 1, b: 'x, y'}`,
-    `[a, "b, c"]`, nested. Quoted scalars may contain `,:[]{}`; a duplicate
-    key is rejected. Anything else (e.g. a flow spanning lines) raises."""
-    n = len(text)
-
-    def ws(i: int) -> int:
-        while i < n and text[i] in " \t":
-            i += 1
-        return i
-
-    def quoted(i: int) -> tuple[str, int]:
-        q = text[i]
-        out: list[str] = []
-        i += 1
-        while i < n:
-            ch = text[i]
-            if q == "'" and ch == "'":
-                if i + 1 < n and text[i + 1] == "'":
-                    out.append("'")
-                    i += 2
-                    continue
-                return "".join(out), i + 1
-            if q == '"' and ch == "\\" and i + 1 < n:
-                out.append(text[i + 1])
-                i += 2
-                continue
-            if q == '"' and ch == '"':
-                return "".join(out), i + 1
-            out.append(ch)
-            i += 1
-        raise SourceSchemaParseError(f"unterminated quoted scalar in flow collection {text[:60]!r}")
-
-    def plain(i: int) -> tuple[object, int]:
-        # A plain scalar ends at a flow indicator or a ': ' key separator.
-        start = i
-        while i < n:
-            ch = text[i]
-            if ch in ",[]{}":
-                break
-            if ch == ":" and (i + 1 >= n or text[i + 1] in " ,[]{}"):
-                break
-            i += 1
-        return _yaml_min_plain(text[start:i]), i
-
-    def value(i: int) -> tuple[object, int]:
-        i = ws(i)
-        if i >= n:
-            raise SourceSchemaParseError(f"incomplete flow collection {text[:60]!r}")
-        ch = text[i]
-        if ch == "{":
-            return mapping(i)
-        if ch == "[":
-            return sequence(i)
-        if ch in ('"', "'"):
-            return quoted(i)
-        return plain(i)
-
-    def mapping(i: int) -> tuple[dict, int]:
-        out: dict = {}
-        i = ws(i + 1)
-        while True:
-            if i >= n:
-                raise SourceSchemaParseError(f"unterminated flow mapping {text[:60]!r}")
-            if text[i] == "}":
-                return out, i + 1
-            key, i = value(i)
-            i = ws(i)
-            val = None
-            if i < n and text[i] == ":":
-                i = ws(i + 1)
-                if i < n and text[i] not in ",}":
-                    val, i = value(i)
-                    i = ws(i)
-            try:
-                duplicate = key in out
-            except TypeError:
-                raise SourceSchemaParseError(f"unsupported flow mapping key in {text[:60]!r}")
-            if duplicate:
-                raise SourceSchemaParseError(f"duplicate key {key!r} in flow mapping")
-            out[key] = val
-            if i < n and text[i] == ",":
-                i = ws(i + 1)
-            elif i < n and text[i] == "}":
-                continue
-            else:
-                raise SourceSchemaParseError(f"expected ',' or '}}' in flow mapping {text[:60]!r}")
-
-    def sequence(i: int) -> tuple[list, int]:
-        out: list = []
-        i = ws(i + 1)
-        while True:
-            if i >= n:
-                raise SourceSchemaParseError(f"unterminated flow sequence {text[:60]!r}")
-            if text[i] == "]":
-                return out, i + 1
-            item, i = value(i)
-            out.append(item)
-            i = ws(i)
-            if i < n and text[i] == ",":
-                i = ws(i + 1)
-            elif i < n and text[i] == "]":
-                continue
-            else:
-                raise SourceSchemaParseError(f"expected ',' or ']' in flow sequence {text[:60]!r}")
-
-    result, end = value(0)
-    if ws(end) != n:
-        raise SourceSchemaParseError(f"unexpected content after flow collection {text[:60]!r}")
-    return result
+def _finite_float(literal: str) -> float:
+    value = float(literal)
+    if value in (float("inf"), float("-inf")):
+        raise SourceSchemaParseError(f"number {literal} is out of range")
+    return value
 
 
-_BLOCK_SCALAR_RE = re.compile(r"^([|>])(?:([+-])([1-9])?|([1-9])([+-])?)?$")
+def _finite_int(literal: str) -> int:
+    if float(literal) in (float("inf"), float("-inf")):
+        raise SourceSchemaParseError(f"number {literal} is out of range")
+    return int(literal)
 
 
-def _yaml_min_block_scalar(header: str, lines: list[str], i: int, n: int, parent_indent: int) -> tuple[str, int]:
-    """Read a `|`/`>` block scalar (clip/strip/keep chomping, optional
-    indentation indicator) whose content starts at lines[i]. Content lines
-    are taken raw — a '#' inside is text, not a comment."""
-    m = _BLOCK_SCALAR_RE.match(header)
-    style = m.group(1)
-    chomp = m.group(2) or m.group(5) or ""
-    explicit = m.group(3) or m.group(4)
-
-    def indent_of(s: str) -> int:
-        return len(s) - len(s.lstrip(" "))
-
-    if explicit:
-        block_indent = parent_indent + int(explicit)
-    else:
-        k = i
-        while k < n and not lines[k].strip():
-            k += 1
-        block_indent = indent_of(lines[k]) if k < n else parent_indent + 1
-    if block_indent <= parent_indent:
-        block_indent = parent_indent + 1
-
-    body: list[str] = []
-    while i < n:
-        ln = lines[i]
-        if not ln.strip():
-            body.append(ln[block_indent:] if len(ln) > block_indent else "")
-            i += 1
-            continue
-        if indent_of(ln) < block_indent:
-            break
-        body.append(ln[block_indent:])
-        i += 1
-
-    trailing = 0
-    while body and body[-1] == "":
-        body.pop()
-        trailing += 1
-
-    if style == "|":
-        content = "\n".join(body)
-    else:
-        content = ""
-        pending = 0
-        prev_kind = None
-        for ln in body:
-            if ln == "":
-                pending += 1
-                continue
-            kind = "more" if ln[0] in " \t" else "text"
-            if prev_kind is None:
-                content += "\n" * pending
-            elif prev_kind == "text" and kind == "text":
-                content += " " if pending == 0 else "\n" * pending
-            else:
-                content += "\n" * (pending + 1)
-            content += ln
-            prev_kind = kind
-            pending = 0
-
-    if not body:
-        return ("\n" * trailing if chomp == "+" else ""), i
-    if chomp == "-":
-        return content, i
-    if chomp == "+":
-        return content + "\n" + "\n" * trailing, i
-    return content + "\n", i
-
-
-def _yaml_min_split_key_value(s: str, lineno: int) -> tuple[str, str]:
-    """Split 'key: value' on the first unquoted colon. A quoted key may
-    itself contain '.' (table keys) — find its closing quote first."""
-    if s and s[0] in ('"', "'"):
-        q = s[0]
-        j = 1
-        while j < len(s) and s[j] != q:
-            j += 1
-        if j >= len(s):
-            raise SourceSchemaParseError(f"line {lineno + 1}: unterminated quoted key")
-        remainder = s[j + 1:]
-        if not remainder.startswith(":"):
-            raise SourceSchemaParseError(f"line {lineno + 1}: expected ':' after quoted key")
-        return s[0:j + 1], remainder[1:]
-    if ":" not in s:
-        raise SourceSchemaParseError(f"line {lineno + 1}: expected 'key: value', got {s[:60]!r}")
-    idx = s.find(":")
-    return s[:idx], s[idx + 1:]
-
-
-def _yaml_min_block(lines: list[str], i: int, n: int, base_indent: int) -> tuple[dict, int]:
-    """Parse a block mapping whose keys all sit at `base_indent`."""
-    result: dict = {}
-
-    def indent_of(s: str) -> int:
-        return len(s) - len(s.lstrip(" "))
-
-    while i < n:
-        raw = _strip_comment(lines[i])
-        if not raw.strip():
-            i += 1
-            continue
-        ind = indent_of(raw)
-        if ind < base_indent:
-            break
-        if ind > base_indent:
-            raise SourceSchemaParseError(f"line {i + 1}: unexpected indentation")
-        s = raw.strip()
-        if s.startswith("- "):
-            raise SourceSchemaParseError(f"line {i + 1}: unexpected list item in a mapping")
-        key_raw, rest = _yaml_min_split_key_value(s, i)
-        key = _yaml_min_scalar(key_raw)
-        if not isinstance(key, str):
-            key = key_raw.strip()
-        rest = rest.strip()
-        if key in result:
-            raise SourceSchemaParseError(f"line {i + 1}: duplicate key {key!r}")
-        if _BLOCK_SCALAR_RE.match(rest):
-            result[key], i = _yaml_min_block_scalar(rest, lines, i + 1, n, base_indent)
-            continue
-        if rest != "":
-            result[key] = _yaml_min_scalar(rest)
-            i += 1
-            continue
-        # Nested block: find the first non-blank following line to learn
-        # whether it is a mapping or a list, and at what indent.
-        j = i + 1
-        k = j
-        while k < n and not lines[k].strip():
-            k += 1
-        if k >= n or indent_of(lines[k]) <= base_indent:
-            result[key] = None
-            i = j
-            continue
-        nested_indent = indent_of(lines[k])
-        if _strip_comment(lines[k]).strip().startswith("- "):
-            items, i = _yaml_min_list(lines, j, n, nested_indent)
-            result[key] = items
-        else:
-            nested, i = _yaml_min_block(lines, j, n, nested_indent)
-            result[key] = nested
-    return result, i
-
-
-def _yaml_min_list(lines: list[str], i: int, n: int, item_indent: int) -> tuple[list, int]:
-    items: list = []
-
-    def indent_of(s: str) -> int:
-        return len(s) - len(s.lstrip(" "))
-
-    while i < n:
-        raw = _strip_comment(lines[i])
-        if not raw.strip():
-            i += 1
-            continue
-        ind = indent_of(raw)
-        if ind < item_indent:
-            break
-        if ind > item_indent:
-            raise SourceSchemaParseError(f"line {i + 1}: unexpected indentation in list")
-        s = raw.strip()
-        if not s.startswith("- "):
-            break
-        item = s[2:].strip()
-        if _BLOCK_SCALAR_RE.match(item):
-            value, i = _yaml_min_block_scalar(item, lines, i + 1, n, item_indent)
-            items.append(value)
-            continue
-        items.append(_yaml_min_scalar(item))
-        i += 1
-    return items, i
-
-
-def parse_yaml_min_nested(text: str) -> dict:
-    """Restricted block-style YAML reader for schema.yaml: nested mappings,
-    block lists, single-line flow collections (`{}`, `[]`, `{a: b}`,
-    `[a, b]`), `|`/`>` block scalars, quoted/plain scalars, ints,
-    true/false and comments. A duplicate key is rejected. Anything else
-    raises SourceSchemaParseError — never a silent skip, never a traceback."""
+def load_source_schema_json(raw: bytes):
+    """Strictly parse schema.json bytes. Raises SourceSchemaParseError (or a
+    ValueError subclass from json) on anything the server's parser rejects."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SourceSchemaParseError(f"is not valid UTF-8 ({exc.reason} at byte {exc.start})") from None
     if text.startswith("\ufeff"):
         text = text[1:]
-    lines = text.splitlines()
-    n = len(lines)
-    i = 0
-    while i < n and not lines[i].strip():
-        i += 1
-    if i >= n:
-        return {}
-    if len(lines[i]) - len(lines[i].lstrip(" ")) != 0:
-        raise SourceSchemaParseError(f"line {i + 1}: top-level content must start at column 0")
-    result, i = _yaml_min_block(lines, i, n, 0)
-    while i < n and not lines[i].strip():
-        i += 1
-    if i < n:
-        raise SourceSchemaParseError(f"line {i + 1}: unexpected trailing content")
-    return result
-
-
-def load_source_schema_yaml(text: str) -> tuple[dict, str]:
-    """Return (data, parser_name). PyYAML wins when available (decision 2)."""
-    if _pyyaml is not None:
-        data = _pyyaml.load(text, Loader=_UniqueKeySafeLoader)
-        if not isinstance(data, dict):
-            raise SourceSchemaParseError("schema.yaml did not parse to a mapping")
-        return (data, "PyYAML")
-    return (parse_yaml_min_nested(text), "builtin")
+    return json.loads(
+        text,
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_constant,
+        parse_float=_finite_float,
+        parse_int=_finite_int,
+    )
 
 
 def _normalize_table_key(key: str) -> str:
@@ -696,12 +377,29 @@ def _normalize_table_key(key: str) -> str:
     return ".".join(norm)
 
 
+def _is_str(v) -> bool:
+    return isinstance(v, str)
+
+
+def _is_nonempty_str(v) -> bool:
+    return isinstance(v, str) and len(v) >= 1
+
+
+def _is_integer(v) -> bool:
+    """JSON Schema `integer`: any number with a zero fractional part."""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return True
+    return isinstance(v, float) and v.is_integer()
+
+
 def validate_source_schema(data, source_id: str) -> tuple[list, list]:
-    """Hand walker mirroring source-schema.v1.schema.json (t3). Returns
+    """Hand walker mirroring source-schema.v1.schema.json. Returns
     (errors, warnings) as (check, source_id, file, message) tuples — SRC-06
     for anything structurally wrong, SRC-07 for an undeclared `joins`
     target (never blocks, C6)."""
-    file = "schema.yaml"
+    file = "schema.json"
     errors: list[tuple[str, str, str, str]] = []
     warnings: list[tuple[str, str, str, str]] = []
 
@@ -709,73 +407,87 @@ def validate_source_schema(data, source_id: str) -> tuple[list, list]:
         errors.append(("SRC-06", source_id, file, msg))
 
     if not isinstance(data, dict):
-        fail("schema.yaml must be a mapping")
+        fail(f"schema.json must be a JSON object, got {type(data).__name__}")
         return errors, warnings
 
     unknown_top = set(data.keys()) - {"version", "tables"}
     if unknown_top:
         fail(f"unknown top-level key(s): {', '.join(sorted(unknown_top))}")
-    if data.get("version") != 1:
-        fail(f"version must be 1, got {data.get('version')!r}")
+    if "version" not in data:
+        fail("missing required 'version'")
+    else:
+        version = data["version"]
+        if isinstance(version, bool) or not isinstance(version, (int, float)) or version != 1:
+            fail(f"version must be 1, got {json.dumps(version)}")
 
-    tables = data.get("tables")
-    if tables is None:
-        fail("missing 'tables'")
+    if "tables" not in data:
+        fail("missing required 'tables'")
         return errors, warnings
+    tables = data["tables"]
     if not isinstance(tables, dict):
-        fail("'tables' must be a mapping")
+        fail("'tables' must be an object")
         return errors, warnings
 
     declared = {_normalize_table_key(k) for k in tables.keys()}
 
     for table_key, table in tables.items():
-        if not isinstance(table_key, str) or not _TABLE_KEY_RE.match(table_key):
-            fail(f"tables.{table_key!r} is not schema-qualified (expected schema.table)")
+        where = f"tables.{table_key}"
+        if not _TABLE_KEY_RE.fullmatch(table_key):
+            fail(f"tables.{json.dumps(table_key)} is not schema-qualified (expected schema.table)")
             continue
         if not isinstance(table, dict):
-            fail(f"tables.{table_key}: must be a mapping")
+            fail(f"{where}: must be an object")
             continue
         unknown = set(table.keys()) - _TABLE_FIELDS
         if unknown:
-            fail(f"tables.{table_key}: unknown key(s): {', '.join(sorted(unknown))}")
-        if not table.get("purpose"):
-            fail(f"tables.{table_key}: missing required 'purpose'")
-        kind = table.get("kind")
-        if kind is not None and kind not in ("table", "view"):
-            fail(f"tables.{table_key}: kind must be 'table' or 'view'")
-        rows = table.get("rows")
-        if rows is not None and (isinstance(rows, bool) or not isinstance(rows, (str, int))):
-            fail(f"tables.{table_key}: rows must be a string or integer")
-        rules = table.get("rules")
-        if rules is not None and (not isinstance(rules, list) or any(not isinstance(r, str) for r in rules)):
-            fail(f"tables.{table_key}: rules must be a list of strings")
+            fail(f"{where}: unknown key(s): {', '.join(sorted(unknown))}")
+        if "purpose" not in table:
+            fail(f"{where}: missing required 'purpose'")
+        elif not _is_nonempty_str(table["purpose"]):
+            fail(f"{where}: purpose must be a non-empty string")
+        if "kind" in table and table["kind"] not in ("table", "view"):
+            fail(f"{where}: kind must be 'table' or 'view'")
+        if "grain" in table and not _is_str(table["grain"]):
+            fail(f"{where}: grain must be a string")
+        if "rows" in table and not (_is_str(table["rows"]) or _is_integer(table["rows"])):
+            fail(f"{where}: rows must be a string or integer")
+        if "rules" in table:
+            rules = table["rules"]
+            if not isinstance(rules, list) or any(not _is_str(r) for r in rules):
+                fail(f"{where}: rules must be a list of strings")
 
-        columns = table.get("columns")
-        if columns is None:
+        if "columns" not in table:
             continue
+        columns = table["columns"]
         if not isinstance(columns, dict):
-            fail(f"tables.{table_key}: columns must be a mapping")
+            fail(f"{where}: columns must be an object")
             continue
         for col_name, col in columns.items():
+            cwhere = f"{where}.columns.{col_name}"
             if not isinstance(col, dict):
-                fail(f"tables.{table_key}.columns.{col_name}: must be a mapping")
+                fail(f"{cwhere}: must be an object")
                 continue
             unknown_c = set(col.keys()) - _COLUMN_FIELDS
             if unknown_c:
-                fail(f"tables.{table_key}.columns.{col_name}: unknown key(s): {', '.join(sorted(unknown_c))}")
-            if not col.get("meaning"):
-                fail(f"tables.{table_key}.columns.{col_name}: missing required 'meaning'")
-            if "key" in col and not isinstance(col["key"], bool):
-                fail(f"tables.{table_key}.columns.{col_name}: key must be a boolean")
-            if "sensitive" in col and not isinstance(col["sensitive"], bool):
-                fail(f"tables.{table_key}.columns.{col_name}: sensitive must be a boolean")
-            values = col.get("values")
-            if values is not None and (not isinstance(values, dict) or any(not isinstance(v, str) for v in values.values())):
-                fail(f"tables.{table_key}.columns.{col_name}: values must be a string map")
-            joins = col.get("joins")
-            if joins is not None:
-                if not isinstance(joins, str) or not _JOIN_RE.match(joins):
-                    fail(f"tables.{table_key}.columns.{col_name}: joins must be a schema.table.column reference")
+                fail(f"{cwhere}: unknown key(s): {', '.join(sorted(unknown_c))}")
+            if "meaning" not in col:
+                fail(f"{cwhere}: missing required 'meaning'")
+            elif not _is_nonempty_str(col["meaning"]):
+                fail(f"{cwhere}: meaning must be a non-empty string")
+            for field in ("type", "unit", "tz"):
+                if field in col and not _is_str(col[field]):
+                    fail(f"{cwhere}: {field} must be a string")
+            for field in ("key", "sensitive"):
+                if field in col and not isinstance(col[field], bool):
+                    fail(f"{cwhere}: {field} must be a boolean")
+            if "values" in col:
+                values = col["values"]
+                if not isinstance(values, dict) or any(not _is_str(v) for v in values.values()):
+                    fail(f"{cwhere}: values must be an object of strings")
+            if "joins" in col:
+                joins = col["joins"]
+                if not _is_str(joins) or not _JOIN_RE.fullmatch(joins):
+                    fail(f"{cwhere}: joins must be a schema.table.column reference")
                 else:
                     parts = joins.split(".")
                     target = _normalize_table_key(f"{parts[0]}.{parts[1]}")
@@ -1322,7 +1034,7 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
 
 
 def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
-    """SRC-04..14: per-source SOURCE.md/schema.yaml presence + validity,
+    """SRC-04..14: per-source SOURCE.md/schema.json presence + validity,
     named query header/body checks, and the adhoc:false rule. Runs against
     the AUTHORED tree (src/sources/<id>/...), not the zip layout."""
     if not isinstance(manifest, dict):
@@ -1338,26 +1050,33 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
             continue
         adhoc = src.get("adhoc") is not False
         src_dir = root / "src" / "sources" / source_id
-        # Exact-case directory listing — Sources/ or Schema.yaml fails here
+        # Exact-case directory listing — Sources/ or Schema.json fails here
         # exactly as it does on the server (SRC-05/SRC-04 zip convention).
         names = set(os.listdir(src_dir)) if src_dir.is_dir() else set()
 
-        # Files are read as utf-8-sig: a leading BOM is dropped exactly as
-        # astroport's TextDecoder (fflate strFromU8) drops it server-side.
+        # SOURCE.md and queries are read as utf-8-sig: a leading BOM is
+        # dropped exactly as astroport's TextDecoder (fflate strFromU8) drops
+        # it server-side. schema.json has its own strict reader below.
         # ── SRC-04: SOURCE.md present and non-empty ──
         if "SOURCE.md" not in names:
             rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md missing")
         elif not (src_dir / "SOURCE.md").read_text(encoding="utf-8-sig").strip():
             rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md is empty")
 
-        if "schema.yaml" not in names:
-            rep.fail("sources", "SRC-05", f"{source_id}: schema.yaml missing")
+        # ── SRC-05..07: schema.json (ADR-016) ──
+        # Only the exact name counts: a schema.yaml shipped instead is
+        # "schema.json missing". Raw bytes go to the strict JSON reader,
+        # which strips exactly one leading BOM itself.
+        if "schema.json" not in names:
+            rep.fail("sources", "SRC-05", f"{source_id}: schema.json missing")
             continue
-        text = (src_dir / "schema.yaml").read_text(encoding="utf-8-sig")
         try:
-            data, _parser = load_source_schema_yaml(text)
-        except Exception as exc:  # SourceSchemaParseError or a PyYAML error
-            rep.fail("sources", "SRC-06", f"{source_id}: schema.yaml is not valid YAML: {exc}")
+            data = load_source_schema_json((src_dir / "schema.json").read_bytes())
+        except SourceSchemaParseError as exc:
+            rep.fail("sources", "SRC-06", f"{source_id}: schema.json {exc}")
+            continue
+        except (ValueError, RecursionError) as exc:  # json.JSONDecodeError et al.
+            rep.fail("sources", "SRC-06", f"{source_id}: schema.json is not valid JSON: {exc}")
             continue
         errors, warnings = validate_source_schema(data, source_id)
         for check, sid, file, msg in errors:

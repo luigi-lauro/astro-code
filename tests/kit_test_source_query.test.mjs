@@ -38,8 +38,8 @@ function scratchKit(querySql, { fileName = 'open_orders.sql' } = {}) {
   mkdirSync(join(srcDir, 'queries'), { recursive: true });
   writeFileSync(join(srcDir, 'SOURCE.md'), '# ERP\n\nThe ERP database.\n');
   writeFileSync(
-    join(srcDir, 'schema.yaml'),
-    'version: 1\ntables:\n  dbo.Orders:\n    purpose: x\n    columns:\n      OrderId:\n        meaning: y\n',
+    join(srcDir, 'schema.json'),
+    JSON.stringify({ version: 1, tables: { 'dbo.Orders': { purpose: 'x', columns: { OrderId: { meaning: 'y' } } } } }),
   );
   if (querySql !== null) writeFileSync(join(srcDir, 'queries', fileName), querySql);
   return dir;

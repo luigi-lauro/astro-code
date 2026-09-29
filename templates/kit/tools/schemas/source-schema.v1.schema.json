@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://astro.dev/schemas/source-schema.v1.schema.json",
-  "title": "Kit source schema.yaml (v1)",
-  "description": "Phase 102 (SRC-06/07). Describes src/sources/<id>/schema.yaml: a version marker and a map of schema-qualified tables. Closed at every level so a typo surfaces at publish instead of being silently ignored.",
+  "title": "Kit source schema.json (v1)",
+  "description": "Phase 102 (SRC-06/07). Describes src/sources/<id>/schema.json (plain JSON; duplicate keys rejected by the parser): a version marker and a map of schema-qualified tables. Closed at every level so a typo surfaces at publish instead of being silently ignored.",
   "type": "object",
   "required": ["version", "tables"],
   "properties": {

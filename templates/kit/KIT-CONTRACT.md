@@ -70,7 +70,7 @@ points at, and its login) live in astroport, never here (ADR-012).
 ```
 src/sources/<id>/
 ├── SOURCE.md      # REQUIRED — what this source is, in prose
-├── schema.yaml     # REQUIRED — tables/columns Astro can query
+├── schema.json     # REQUIRED — tables/columns Astro can query (plain JSON)
 └── queries/         # OPTIONAL — named, deterministic SQL
     └── <name>.sql
 ```
@@ -97,41 +97,48 @@ runtime tools that consume sources ship in phase 105, and an instance still on t
 1.0.0 runtime contract must never see this kit, so it is simply filtered out rather
 than crashing on tools it does not have.
 
-### `schema.yaml` shape
+### `schema.json` shape
 
-```yaml
-version: 1
-tables:
-  dbo.Orders:
-    purpose: Order header records
-    kind: table
-    columns:
-      OrderId:
-        meaning: Primary key
-        type: int
-        key: true
-      CustomerId:
-        meaning: Customer reference
-        type: int
-      Total:
-        meaning: Order total
-        type: decimal(18,2)
+`schema.json` is **plain JSON** (RFC 8259), validated against
+`tools/schemas/source-schema.v1.schema.json`:
+
+```json
+{
+  "version": 1,
+  "tables": {
+    "dbo.Orders": {
+      "purpose": "Order header records",
+      "kind": "table",
+      "columns": {
+        "OrderId": { "meaning": "Primary key", "type": "int", "key": true },
+        "CustomerId": { "meaning": "Customer reference", "type": "int" },
+        "Total": { "meaning": "Order total", "type": "decimal(18,2)" }
+      }
+    }
+  }
+}
 ```
 
+- Plain JSON only: double-quoted keys and strings, **no comments** (`//` or `/* */`), **no
+  trailing commas**, no `NaN`/`Infinity`. One leading UTF-8 BOM is tolerated; nothing
+  else outside standard JSON is.
+- **Duplicate keys are rejected** at every level (top level, `tables`, `columns`, inside a
+  table or column object, inside `values`) and the error names the duplicated key — a
+  standard JSON parser would silently keep the last value, so both validators refuse it.
+- `version` is the number `1`. `tables` is an object keyed by table.
 - Table keys are **schema-qualified** (`dbo.Orders`, or bracketed `[dbo].[v_Open Orders]`)
   — an unqualified key like `v_OpenOrders` is rejected.
-- Every table needs `purpose`; every column needs `meaning`. `kind` (`table`|`view`),
-  `grain`, `rows` (free text or a number), and `rules` (a string list) are optional on a
-  table; `type`, `key` (bool), `joins` (a `schema.table.column` reference), `unit`, `tz`,
-  `values` (an enum map) and `sensitive` (bool) are optional on a column.
+- Every table needs `purpose`; every column needs `meaning`. **Both are non-empty
+  strings** — a number, `null`, `true`/`false` or an array is rejected.
+- Optional on a table: `kind` (`"table"`|`"view"`), `grain` (string), `rows` (a string such
+  as `"~2M"` or an integer), `columns` (object), `rules` (array of strings).
+- Optional on a column: `type` (string), `key` (boolean), `joins` (a
+  `"schema.table.column"` string), `unit` (string), `tz` (string), `values` (an object
+  mapping each code to a string label), `sensitive` (boolean).
 - Unknown keys are rejected everywhere in this file — a typo surfaces at publish, not at
   query time.
 - A `joins` target that is not declared in this file is a WARNING, never a rejection —
   joining to another kit's or another source's table is legitimate.
-- Use **block-style YAML** (block scalars `|`/`>` and single-line flow collections such
-  as `{}`, `[]`, `{meaning: Key, type: int}` are fine) and literal `true`/`false` — the
-  offline tool's fallback parser (used when PyYAML is unavailable) only reads that subset,
-  and both parsers must agree on every kit. A duplicated key is rejected (SRC-06).
 
 ### Named queries (`src/sources/<id>/queries/<name>.sql`)
 
@@ -194,8 +201,8 @@ Every rejection names the check ID plus the source id, file, param or column inv
 | SRC-02 | FAIL | Duplicate source id |
 | SRC-03 | FAIL | Non-empty `sources` without `contract_version` satisfying `^1.1.0` |
 | SRC-04 | FAIL | `SOURCE.md` missing or empty |
-| SRC-05 | FAIL | `schema.yaml` missing |
-| SRC-06 | FAIL | `schema.yaml` fails to parse or breaks the shape |
+| SRC-05 | FAIL | `schema.json` missing (the exact name, lowercase) |
+| SRC-06 | FAIL | `schema.json` is not plain JSON (syntax, comment, trailing comma, duplicate key, `NaN`) or breaks the shape |
 | SRC-07 | WARN | A `joins` target table is not declared in the same file — never blocks |
 | SRC-08 | FAIL | Malformed query header (`@name`/`@description`, unknown `@tag`) |
 | SRC-09 | FAIL | A body `@Param` is undeclared, or a declared param is unused |

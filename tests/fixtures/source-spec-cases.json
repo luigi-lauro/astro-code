@@ -27,7 +27,7 @@
     },
     "files": {
       "src/sources/erp/SOURCE.md": "# ERP\n\nThe ERP order database.\n",
-      "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n",
+      "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n",
       "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
     }
   },
@@ -63,7 +63,7 @@
       "name": "joins-undeclared-warn",
       "criteria": "C6",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n        joins: dbo.Unknown.Id\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\",\n          \"joins\": \"dbo.Unknown.Id\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": true,
@@ -78,7 +78,7 @@
       "name": "bracketed-table-key",
       "criteria": "C6",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  \"[dbo].[v_Open Orders]\":\n    purpose: Bracketed schema-qualified key\n    columns:\n      OrderId:\n        meaning: Primary key\n"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"[dbo].[v_Open Orders]\": {\n      \"purpose\": \"Bracketed schema-qualified key\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": true
@@ -88,7 +88,7 @@
       "name": "unqualified-table-key",
       "criteria": "C6",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  v_OpenOrders:\n    purpose: Unqualified key\n    columns:\n      OrderId:\n        meaning: Primary key\n"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"v_OpenOrders\": {\n      \"purpose\": \"Unqualified key\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": false,
@@ -99,7 +99,7 @@
       "name": "malformed-joins-ref",
       "criteria": "C6",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n        joins: notaref\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\",\n          \"joins\": \"notaref\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": false,
@@ -477,10 +477,10 @@
       }
     },
     {
-      "name": "missing-schema-yaml",
+      "name": "missing-schema-json",
       "criteria": "C1c",
       "files": {
-        "src/sources/erp/schema.yaml": null
+        "src/sources/erp/schema.json": null
       },
       "expect": {
         "ok": false,
@@ -488,10 +488,10 @@
       }
     },
     {
-      "name": "schema-yaml-unparseable",
+      "name": "schema-json-truncated",
       "criteria": "C1d",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\n  tables: [broken"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"p"
       },
       "expect": {
         "ok": false,
@@ -499,10 +499,10 @@
       }
     },
     {
-      "name": "schema-yaml-missing-version",
+      "name": "schema-json-missing-version",
       "criteria": "C1d",
       "files": {
-        "src/sources/erp/schema.yaml": "tables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+        "src/sources/erp/schema.json": "{\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": false,
@@ -510,10 +510,10 @@
       }
     },
     {
-      "name": "schema-yaml-table-no-purpose",
+      "name": "schema-json-table-no-purpose",
       "criteria": "C1d",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    columns:\n      OrderId:\n        meaning: Primary key\n"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": false,
@@ -521,10 +521,10 @@
       }
     },
     {
-      "name": "schema-yaml-column-no-meaning",
+      "name": "schema-json-column-no-meaning",
       "criteria": "C1d",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId:\n        type: int\n"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": false,
@@ -532,10 +532,10 @@
       }
     },
     {
-      "name": "schema-yaml-unknown-key",
+      "name": "schema-json-unknown-key",
       "criteria": "C1d",
       "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId:\n        meanin: Primary key\n"
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meanin\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
       },
       "expect": {
         "ok": false,
@@ -930,119 +930,6 @@
       }
     },
     {
-      "name": "schema-yaml-folded-block-scalar",
-      "criteria": "C4/C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: >\n      Order header\n      records, one per order\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
-      "name": "schema-yaml-literal-block-scalar",
-      "criteria": "C4/C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: |\n      Order header records.\n      One row per order.\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
-      "name": "schema-yaml-block-scalar-chomping",
-      "criteria": "C4/C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: |-\n      Order header records\n    grain: >+\n      one row per order\n\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n    rules:\n      - >-\n        Totals exclude\n        cancelled lines\n      - plain rule\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
-      "name": "schema-yaml-empty-tables",
-      "criteria": "C4/C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables: {}\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
-      "name": "schema-yaml-flow-mapping",
-      "criteria": "C4/C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId: {meaning: Primary key, type: int, key: true}\n      Status:\n        meaning: Order status\n        values: {O: Open, C: 'Closed, final'}\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
-      "name": "schema-yaml-flow-sequence",
-      "criteria": "C4/C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    rules: [Totals include tax, \"Dates are UTC, always\"]\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
-      "name": "schema-yaml-empty-flow-sequence",
-      "criteria": "C4/C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    rules: []\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
-      "name": "schema-yaml-duplicate-key",
-      "criteria": "C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    purpose: Again\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n"
-      },
-      "expect": {
-        "ok": false,
-        "check": "SRC-06"
-      }
-    },
-    {
-      "name": "schema-yaml-duplicate-table-key",
-      "criteria": "C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n  dbo.Orders:\n    purpose: Again\n"
-      },
-      "expect": {
-        "ok": false,
-        "check": "SRC-06"
-      }
-    },
-    {
-      "name": "schema-yaml-duplicate-key-flow",
-      "criteria": "C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId: {meaning: Primary key, meaning: Again}\n"
-      },
-      "expect": {
-        "ok": false,
-        "check": "SRC-06"
-      }
-    },
-    {
-      "name": "schema-yaml-bom",
-      "criteria": "C5 r1",
-      "files": {
-        "src/sources/erp/schema.yaml": "\ufeffversion: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
-      },
-      "expect": {
-        "ok": true
-      }
-    },
-    {
       "name": "query-bom",
       "criteria": "C5 r1",
       "files": {
@@ -1103,6 +990,873 @@
       "expect": {
         "ok": false,
         "check": "SRC-10"
+      }
+    },
+    {
+      "name": "schema-json-bom",
+      "criteria": "C1/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "\ufeff{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-compact",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\":1,\"tables\":{\"dbo.Orders\":{\"purpose\":\"Order header records\",\"kind\":\"table\",\"columns\":{\"OrderId\":{\"meaning\":\"Primary key\",\"type\":\"int\",\"key\":true},\"CustomerId\":{\"meaning\":\"Customer reference\",\"type\":\"int\"},\"Total\":{\"meaning\":\"Order total\",\"type\":\"decimal(18,2)\"}}}}}"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-empty-tables",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-values-map",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"Status\": {\n          \"meaning\": \"Order status\",\n          \"values\": {\n            \"O\": \"Open\",\n            \"C\": \"Closed, final\"\n          }\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-rules-list",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rules\": [\n        \"Totals include tax\",\n        \"Dates are UTC, always\"\n      ],\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-empty-rules",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rules\": [],\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-multiline-strings",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records.\\nOne row per order.\",\n      \"grain\": \"one row per order\\n\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-all-fields",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"view\",\n      \"grain\": \"one row per order\",\n      \"rows\": 2000000,\n      \"rules\": [\n        \"Totals include tax\"\n      ],\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"PlacedAt\": {\n          \"meaning\": \"Placement time\",\n          \"type\": \"datetime2\",\n          \"tz\": \"UTC\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\",\n          \"unit\": \"EUR\",\n          \"sensitive\": false\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-rows-string",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": \"~2M\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-integral-float",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1.0, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": 5.0}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-escaped-strings",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Caf\\u00e9 \\\"orders\\\" \\/ tab\\t\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-proto-column",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"__proto__\": {\"meaning\": \"Odd but legal\"}}}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-duplicate-version-invalid-first",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 2, \"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"version\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-tables",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {}, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"tables\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-table-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}, \"dbo.Orders\": {\"purpose\": \"Again\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"dbo.Orders\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-purpose",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": 5, \"purpose\": \"Order header records\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"purpose\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-column-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}, \"OrderId\": {\"meaning\": \"Again\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"OrderId\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-meaning",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\", \"meaning\": \"Again\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"meaning\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-values-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"Status\": {\"meaning\": \"Order status\", \"values\": {\"O\": \"Open\", \"O\": \"Other\"}}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"O\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-after-escape",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\", \"mean\\u0069ng\": \"Again\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"meaning\""
+      }
+    },
+    {
+      "name": "schema-json-purpose-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": 5\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": [\n        \"Order header records\"\n      ]\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-boolean",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": true\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-empty",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": [\n            \"x\"\n          ]\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-boolean",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": true\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": 1\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": null\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-version-true",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": true, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-version-string",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": \"1\", \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-version-2",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 2, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-missing-tables",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-tables-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": null}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unknown-top-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {}, \"extra\": true}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unknown-table-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"purpse\": \"x\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-kind-invalid",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"procedure\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-kind-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-grain-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"grain\": 1\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rows-fractional",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": 1.5\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rows-boolean",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": true\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rows-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-columns-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-columns-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": []\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rules-not-strings",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rules\": [\n        1\n      ]\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-column-not-object",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": \"Primary key\"\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-type-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": 5\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-key-string",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"key\": \"yes\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-sensitive-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"sensitive\": 1\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-values-not-strings",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"Status\": {\n          \"meaning\": \"Order status\",\n          \"values\": {\n            \"O\": 1\n          }\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-joins-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"joins\": null\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-table-key-trailing-newline",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\\n\": {\n      \"purpose\": \"Order header records\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-joins-trailing-newline",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"joins\": \"dbo.Orders.OrderId\\n\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unbalanced-braces",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-trailing-comma-object",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\",}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-trailing-comma-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rules\": [\"a\",]}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-line-comment",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  // tables Astro can query\n  \"version\": 1,\n  \"tables\": {}\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-block-comment",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{ /* v1 */ \"version\": 1, \"tables\": {} }\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-single-quotes",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{'version': 1, 'tables': {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unquoted-keys",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{version: 1, tables: {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-nan",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": NaN}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-infinity",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": Infinity}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-negative-infinity",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": -Infinity}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-number-overflow",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": 1e400}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-hex-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": 0x10}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-leading-zero",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 01, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-raw-control-char",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order\theader\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-yaml-content",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-yaml-flow-content",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "version: 1\ntables: {}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-empty-file",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": ""
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-whitespace-only",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": " \n\t\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-top-level-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "[{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}]\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-top-level-string",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "\"version\"\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-top-level-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "null\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-trailing-content",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}} {}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-two-documents",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}\n{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-double-bom",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "\ufeff\ufeff{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-instead-of-schema-json",
+      "criteria": "C1c/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": null,
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-05"
+      }
+    },
+    {
+      "name": "schema-json-wrong-case-name",
+      "criteria": "C1c r2",
+      "files": {
+        "src/sources/erp/schema.json": null,
+        "src/sources/erp/Schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-05"
       }
     }
   ]
