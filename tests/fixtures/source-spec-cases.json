@@ -2237,6 +2237,981 @@
         "ok": false,
         "check": "SRC-10"
       }
+    },
+    {
+      "name": "param-default-smallmoney-default-overflow",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap smallmoney optional default=999999\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-smallmoney-default-max",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap smallmoney optional default=214748.3647\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-money-default-too-many-decimals",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap money optional default=1.23456\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetimeoffset-default-offset-15",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetimeoffset optional default=2026-01-01T00:00:00+15:00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetimeoffset-default-offset-14",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetimeoffset optional default=2026-01-01T00:00:00+14:00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-float-default-1e309",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1e309\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-float-default-400-digits",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-float-default-max",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1.79E+308\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-float-default-underflow",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1e-400\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-real-default-1e39",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap real optional default=1e39\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-real-default-max",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap real optional default=3.40E+38\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-date-default-non-leap-feb29",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap date optional default=2023-02-29\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetime-default-before-1753",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetime optional default=1752-12-31\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetime2-default-fraction-over-scale",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetime2(3) optional default=2026-01-01T10:00:00.1234\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    }
+  ],
+  "default_literals": [
+    {
+      "type": "tinyint",
+      "literal": "255",
+      "ok": true
+    },
+    {
+      "type": "tinyint",
+      "literal": "256",
+      "ok": false,
+      "note": "max+1"
+    },
+    {
+      "type": "tinyint",
+      "literal": "-1",
+      "ok": false,
+      "note": "min-1"
+    },
+    {
+      "type": "smallint",
+      "literal": "-32768",
+      "ok": true
+    },
+    {
+      "type": "smallint",
+      "literal": "-32769",
+      "ok": false,
+      "note": "min-1"
+    },
+    {
+      "type": "int",
+      "literal": "2147483647",
+      "ok": true
+    },
+    {
+      "type": "int",
+      "literal": "2147483648",
+      "ok": false,
+      "note": "max+1"
+    },
+    {
+      "type": "bigint",
+      "literal": "9223372036854775807",
+      "ok": true
+    },
+    {
+      "type": "bigint",
+      "literal": "9223372036854775808",
+      "ok": false,
+      "note": "max+1"
+    },
+    {
+      "type": "bigint",
+      "literal": "-9223372036854775808",
+      "ok": true
+    },
+    {
+      "type": "bigint",
+      "literal": "-9223372036854775809",
+      "ok": false,
+      "note": "min-1"
+    },
+    {
+      "type": "bit",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "1",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "true",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "false",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "2",
+      "ok": false
+    },
+    {
+      "type": "bit",
+      "literal": "yes",
+      "ok": false
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "999.99",
+      "ok": true,
+      "note": "exact max"
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "1000.00",
+      "ok": false,
+      "note": "max+1 ulp at scale"
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "-999.99",
+      "ok": true
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "999.999",
+      "ok": false,
+      "note": "more decimals than scale"
+    },
+    {
+      "type": "decimal(2,2)",
+      "literal": "0.5",
+      "ok": true,
+      "note": "leading zero is not a significant digit"
+    },
+    {
+      "type": "decimal(38,0)",
+      "literal": "99999999999999999999999999999999999999",
+      "ok": true,
+      "note": "38 nines"
+    },
+    {
+      "type": "decimal(38,0)",
+      "literal": "999999999999999999999999999999999999999",
+      "ok": false,
+      "note": "39 nines"
+    },
+    {
+      "type": "decimal",
+      "literal": "1.5",
+      "ok": false,
+      "note": "bare decimal is decimal(18,0)"
+    },
+    {
+      "type": "numeric(3,1)",
+      "literal": "12.3",
+      "ok": true
+    },
+    {
+      "type": "money",
+      "literal": "922337203685477.5807",
+      "ok": true,
+      "note": "exact max"
+    },
+    {
+      "type": "money",
+      "literal": "922337203685477.5808",
+      "ok": false,
+      "note": "max+1 ulp"
+    },
+    {
+      "type": "money",
+      "literal": "-922337203685477.5808",
+      "ok": true,
+      "note": "exact min"
+    },
+    {
+      "type": "money",
+      "literal": "-922337203685477.5809",
+      "ok": false,
+      "note": "min-1 ulp"
+    },
+    {
+      "type": "money",
+      "literal": "1.2340",
+      "ok": true
+    },
+    {
+      "type": "money",
+      "literal": "1.23456",
+      "ok": false,
+      "note": "5 decimal places"
+    },
+    {
+      "type": "money",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "money",
+      "literal": "99999999999999999999",
+      "ok": false,
+      "note": "20-digit integer"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "214748.3647",
+      "ok": true,
+      "note": "exact max"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "214748.3648",
+      "ok": false,
+      "note": "max+1 ulp"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "-214748.3648",
+      "ok": true,
+      "note": "exact min"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "-214748.3649",
+      "ok": false,
+      "note": "min-1 ulp"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "999999",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "0.0001",
+      "ok": true
+    },
+    {
+      "type": "smallmoney",
+      "literal": "0.00001",
+      "ok": false,
+      "note": "5 decimal places"
+    },
+    {
+      "type": "float",
+      "literal": "1.79E+308",
+      "ok": true,
+      "note": "documented max"
+    },
+    {
+      "type": "float",
+      "literal": "1.7900000000000001E+308",
+      "ok": false,
+      "note": "max + 1 decimal ulp"
+    },
+    {
+      "type": "float",
+      "literal": "-1.79E+308",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "179e306",
+      "ok": true,
+      "note": "same value as the max"
+    },
+    {
+      "type": "float",
+      "literal": "179000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "ok": true,
+      "note": "the max written as a 309-digit integer"
+    },
+    {
+      "type": "float",
+      "literal": "179000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+      "ok": false,
+      "note": "the max + 1 as a 309-digit integer"
+    },
+    {
+      "type": "float",
+      "literal": "1e309",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "float",
+      "literal": "1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "ok": false,
+      "note": "verifier r5: 400-digit integer"
+    },
+    {
+      "type": "float",
+      "literal": "1e99999999999999999999999",
+      "ok": false,
+      "note": "huge exponent"
+    },
+    {
+      "type": "float",
+      "literal": "2.23E-308",
+      "ok": true,
+      "note": "documented min positive"
+    },
+    {
+      "type": "float",
+      "literal": "2.2299999E-308",
+      "ok": false,
+      "note": "below min positive (underflow)"
+    },
+    {
+      "type": "float",
+      "literal": "-2.23E-308",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "1e-400",
+      "ok": false,
+      "note": "underflow"
+    },
+    {
+      "type": "float",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "0.0e99999",
+      "ok": true,
+      "note": "zero with any exponent is zero"
+    },
+    {
+      "type": "float",
+      "literal": "-0e-999",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "1.5",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "-2.5e10",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "1.5e+",
+      "ok": false,
+      "note": "malformed exponent"
+    },
+    {
+      "type": "float(53)",
+      "literal": "1e308",
+      "ok": true
+    },
+    {
+      "type": "float(25)",
+      "literal": "1e39",
+      "ok": true,
+      "note": "float(25..53) is 8-byte"
+    },
+    {
+      "type": "float(24)",
+      "literal": "3.40E+38",
+      "ok": true,
+      "note": "float(1..24) is real"
+    },
+    {
+      "type": "float(24)",
+      "literal": "1e39",
+      "ok": false,
+      "note": "float(1..24) is real"
+    },
+    {
+      "type": "float(1)",
+      "literal": "1.18E-38",
+      "ok": true
+    },
+    {
+      "type": "float(1)",
+      "literal": "1.17E-38",
+      "ok": false,
+      "note": "real underflow"
+    },
+    {
+      "type": "float(54)",
+      "literal": "1",
+      "ok": false,
+      "note": "mantissa must be 1..53"
+    },
+    {
+      "type": "float(0)",
+      "literal": "1",
+      "ok": false,
+      "note": "mantissa must be 1..53"
+    },
+    {
+      "type": "real",
+      "literal": "3.40E+38",
+      "ok": true,
+      "note": "documented max"
+    },
+    {
+      "type": "real",
+      "literal": "3.4000000001E+38",
+      "ok": false,
+      "note": "max + decimal ulp"
+    },
+    {
+      "type": "real",
+      "literal": "-3.40E+38",
+      "ok": true
+    },
+    {
+      "type": "real",
+      "literal": "1e39",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "real",
+      "literal": "1.18E-38",
+      "ok": true,
+      "note": "documented min positive"
+    },
+    {
+      "type": "real",
+      "literal": "1.17E-38",
+      "ok": false,
+      "note": "underflow"
+    },
+    {
+      "type": "real",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "date",
+      "literal": "0001-01-01",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "date",
+      "literal": "9999-12-31",
+      "ok": true,
+      "note": "max"
+    },
+    {
+      "type": "date",
+      "literal": "0000-12-31",
+      "ok": false,
+      "note": "year 0"
+    },
+    {
+      "type": "date",
+      "literal": "0050-06-15",
+      "ok": true,
+      "note": "two-digit-era year (JS Date maps 0..99 to 19xx)"
+    },
+    {
+      "type": "date",
+      "literal": "2024-02-29",
+      "ok": true,
+      "note": "leap day"
+    },
+    {
+      "type": "date",
+      "literal": "2023-02-29",
+      "ok": false,
+      "note": "not a leap year"
+    },
+    {
+      "type": "date",
+      "literal": "1900-02-29",
+      "ok": false,
+      "note": "century, not a leap year"
+    },
+    {
+      "type": "date",
+      "literal": "2000-02-29",
+      "ok": true,
+      "note": "400-year leap day"
+    },
+    {
+      "type": "date",
+      "literal": "2026-13-01",
+      "ok": false
+    },
+    {
+      "type": "date",
+      "literal": "2026-04-31",
+      "ok": false
+    },
+    {
+      "type": "date",
+      "literal": "2026-01-01T00:00:00",
+      "ok": false,
+      "note": "date takes no time"
+    },
+    {
+      "type": "datetime",
+      "literal": "1753-01-01",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "datetime",
+      "literal": "1752-12-31",
+      "ok": false,
+      "note": "min-1 day"
+    },
+    {
+      "type": "datetime",
+      "literal": "1753-01-01T00:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime",
+      "literal": "9999-12-31T23:59:59.997",
+      "ok": true,
+      "note": "max"
+    },
+    {
+      "type": "datetime",
+      "literal": "9999-12-31T23:59:59.999",
+      "ok": false,
+      "note": "rounds past the max"
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T12:00:00.123",
+      "ok": true
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T12:00:00.1234",
+      "ok": false,
+      "note": "datetime takes 3 fractional digits"
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T24:00:00",
+      "ok": false
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T23:60",
+      "ok": false
+    },
+    {
+      "type": "datetime",
+      "literal": "2024-02-29T10:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime",
+      "literal": "2023-02-29T10:00:00",
+      "ok": false
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "1900-01-01",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "1899-12-31",
+      "ok": false,
+      "note": "min-1 day"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06",
+      "ok": true,
+      "note": "max day"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-07",
+      "ok": false,
+      "note": "max+1 day"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06T23:59:29.998",
+      "ok": true,
+      "note": "rounds down to the max minute"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06T23:59:29.999",
+      "ok": false,
+      "note": "rounds up past the max"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06T23:59:30",
+      "ok": false,
+      "note": "rounds up past the max"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2026-01-01T10:00:00.1234",
+      "ok": false,
+      "note": "3 fractional digits at most"
+    },
+    {
+      "type": "datetime2",
+      "literal": "0001-01-01T00:00:00",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "datetime2",
+      "literal": "9999-12-31T23:59:59.9999999",
+      "ok": true,
+      "note": "max, scale 7"
+    },
+    {
+      "type": "datetime2",
+      "literal": "0000-12-31T23:59:59",
+      "ok": false,
+      "note": "year 0"
+    },
+    {
+      "type": "datetime2(3)",
+      "literal": "2026-01-01T10:00:00.123",
+      "ok": true,
+      "note": "fraction = scale"
+    },
+    {
+      "type": "datetime2(3)",
+      "literal": "2026-01-01T10:00:00.1234",
+      "ok": false,
+      "note": "fraction > scale"
+    },
+    {
+      "type": "datetime2(0)",
+      "literal": "2026-01-01T10:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime2(0)",
+      "literal": "2026-01-01T10:00:00.5",
+      "ok": false,
+      "note": "scale 0 takes no fraction"
+    },
+    {
+      "type": "datetime2",
+      "literal": "2024-02-29T00:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime2",
+      "literal": "2023-02-29T00:00:00",
+      "ok": false
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+14:00",
+      "ok": true,
+      "note": "max offset"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+14:01",
+      "ok": false,
+      "note": "max offset + 1 minute"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00-14:00",
+      "ok": true,
+      "note": "min offset"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00-14:01",
+      "ok": false,
+      "note": "min offset - 1 minute"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+15:00",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+13:59",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+05:60",
+      "ok": false,
+      "note": "offset minutes 00..59"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00Z",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset(2)",
+      "literal": "2026-01-01T00:00:00.12+01:00",
+      "ok": true,
+      "note": "fraction = scale"
+    },
+    {
+      "type": "datetimeoffset(2)",
+      "literal": "2026-01-01T00:00:00.123+01:00",
+      "ok": false,
+      "note": "fraction > scale"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "0001-01-01T00:00:00+01:00",
+      "ok": false,
+      "note": "UTC instant before 0001-01-01"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "0001-01-01T00:00:00-01:00",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "9999-12-31T23:59:59-01:00",
+      "ok": false,
+      "note": "UTC instant after 9999-12-31"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "9999-12-31T23:59:59+01:00",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2023-02-29T00:00:00Z",
+      "ok": false
+    },
+    {
+      "type": "time",
+      "literal": "23:59:59.9999999",
+      "ok": true,
+      "note": "max"
+    },
+    {
+      "type": "time",
+      "literal": "24:00:00",
+      "ok": false
+    },
+    {
+      "type": "time",
+      "literal": "00:00",
+      "ok": true
+    },
+    {
+      "type": "time(3)",
+      "literal": "10:00:00.123",
+      "ok": true,
+      "note": "fraction = scale"
+    },
+    {
+      "type": "time(3)",
+      "literal": "10:00:00.1234",
+      "ok": false,
+      "note": "fraction > scale"
+    },
+    {
+      "type": "time(0)",
+      "literal": "10:00:00",
+      "ok": true
+    },
+    {
+      "type": "time(0)",
+      "literal": "10:00:00.1",
+      "ok": false,
+      "note": "scale 0 takes no fraction"
+    },
+    {
+      "type": "nvarchar(3)",
+      "literal": "abc",
+      "ok": true
+    },
+    {
+      "type": "nvarchar(3)",
+      "literal": "abcd",
+      "ok": false
+    },
+    {
+      "type": "nvarchar(2)",
+      "literal": "\ud83d\ude00",
+      "ok": true,
+      "note": "one emoji = 2 UTF-16 units"
+    },
+    {
+      "type": "nvarchar(1)",
+      "literal": "\ud83d\ude00",
+      "ok": false
+    },
+    {
+      "type": "nchar(3)",
+      "literal": "abc",
+      "ok": true
+    },
+    {
+      "type": "char(2)",
+      "literal": "abc",
+      "ok": false
+    },
+    {
+      "type": "varchar(max)",
+      "literal": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ok": true
+    },
+    {
+      "type": "uniqueidentifier",
+      "literal": "6F9619FF-8B86-D011-B42D-00C04FC964FF",
+      "ok": true
+    },
+    {
+      "type": "uniqueidentifier",
+      "literal": "{6F9619FF-8B86-D011-B42D-00C04FC964FF}",
+      "ok": false,
+      "note": "braces not accepted"
+    },
+    {
+      "type": "uniqueidentifier",
+      "literal": "6F9619FF-8B86-D011-B42D-00C04FC964FG",
+      "ok": false
     }
   ]
 }

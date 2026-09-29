@@ -648,6 +648,14 @@ def parse_sql_type(token) -> tuple[bool, dict | str]:
         if not re.match(r"^[0-7]\Z", raw_args, re.ASCII):
             return False, f"{name} fraction must be 0..7: '{token}'"
         return True, {"name": name, "literal": literal, "args": {"kind": "fraction", "fraction": int(raw_args)}}
+    if args_kind == "mantissa":
+        # float(n): n is the mantissa bits, 1..53; bare float is float(53).
+        max_m = bounds.get("maxMantissa", 53)
+        if raw_args is None:
+            return True, {"name": name, "literal": literal, "args": {"kind": "mantissa", "mantissa": max_m}}
+        if not re.match(r"^[1-9][0-9]*\Z", raw_args, re.ASCII) or _ascii_int(raw_args) > max_m:
+            return False, f"{name} mantissa must be 1..{max_m}: '{token}'"
+        return True, {"name": name, "literal": literal, "args": {"kind": "mantissa", "mantissa": _ascii_int(raw_args)}}
     return False, f"unsupported args kind {args_kind!r} for {name}"  # pragma: no cover — data drift guard
 
 
@@ -655,16 +663,34 @@ _DEF_DATE_RE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})\Z", re.ASCII)
 _DEF_DATETIME_RE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,7}))?)?)?\Z", re.ASCII)
 _DEF_TIME_RE = re.compile(r"^([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,7}))?)?\Z", re.ASCII)
 _DEF_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z", re.ASCII)
-_DEF_OFFSET_RE = re.compile(r"^([^\n]*?)(Z|[+-][0-9]{2}:[0-9]{2})\Z", re.ASCII)
+_DEF_OFFSET_RE = re.compile(r"^([^\n]*?)(Z|([+-])([0-9]{2}):([0-9]{2}))\Z", re.ASCII)
+_DEF_DECIMAL_RE = re.compile(r"^(-?)([0-9]+)(?:\.([0-9]+))?\Z", re.ASCII)
+_DEF_FLOAT_RE = re.compile(r"^(-?)([0-9]+)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?\Z", re.ASCII)
+
+# ── r5 (C12): SQL Server ranges, checked exactly (mirrors sql-types.ts) ────
+# Every comparison is on Python ints or fixed-width digit strings — never on
+# float() — so the verdict equals the server's bit-for-bit. The bounds are
+# data in sqlserver-types.v1.json.
+
+
+def _days_in_month(y: int, mo: int) -> int:
+    if mo == 2:
+        return 29 if y % 4 == 0 and (y % 100 != 0 or y % 400 == 0) else 28
+    return 30 if mo in (4, 6, 9, 11) else 31
 
 
 def _is_real_date(y: int, mo: int, d: int) -> bool:
-    import datetime as _dt
-    try:
-        _dt.date(y, mo, d)
-        return True
-    except ValueError:
-        return False
+    """Pure proleptic-Gregorian check, 0001-01-01..9999-12-31 (as sql-types.ts)."""
+    return 1 <= y <= 9999 and 1 <= mo <= 12 and 1 <= d <= _days_in_month(y, mo)
+
+
+def _day_number(y: int, mo: int, d: int) -> int:
+    """Days since 0001-01-01 (day 0)."""
+    py = y - 1
+    days = 365 * py + py // 4 - py // 100 + py // 400
+    for m in range(1, mo):
+        days += _days_in_month(y, m)
+    return days + d - 1
 
 
 def _valid_time_parts(h: str, mi: str, s: str | None = None) -> bool:
@@ -673,8 +699,90 @@ def _valid_time_parts(h: str, mi: str, s: str | None = None) -> bool:
     return 0 <= hh <= 23 and 0 <= mm <= 59 and 0 <= ss <= 59
 
 
+def _to_stamp(m) -> tuple:
+    """(y, mo, d, h, mi, "SS.fffffff") — rest is fixed width, compares as text."""
+    rest = f"{m.group(6) or '00'}.{(m.group(7) or '').ljust(7, '0')}"
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)),
+            int(m.group(4)) if m.group(4) is not None else 0,
+            int(m.group(5)) if m.group(5) is not None else 0, rest)
+
+
+def _canon_stamp(s: tuple) -> str:
+    y, mo, d, h, mi, rest = s
+    return f"{y:04d}-{mo:02d}-{d:02d}T{h:02d}:{mi:02d}:{rest}"
+
+
+def _bound_stamp(text):
+    if not isinstance(text, str):
+        return None
+    m = _DEF_DATETIME_RE.match(text)
+    return _to_stamp(m) if m else None
+
+
+def _instant_key(s: tuple, offset_minutes: int) -> tuple:
+    y, mo, d, h, mi, rest = s
+    return (_day_number(y, mo, d) * 1440 + h * 60 + mi - offset_minutes, rest)
+
+
+def _scaled_decimal(text: str, scale: int):
+    """An exact decimal literal as an int count of 10^-scale units (or None)."""
+    m = _DEF_DECIMAL_RE.match(text)
+    if not m or len(m.group(3) or "") > scale:
+        return None
+    units = _ascii_int(m.group(2) + (m.group(3) or "").ljust(scale, "0"))
+    return -units if m.group(1) == "-" else units
+
+
+def _float_magnitude(text: str):
+    """0.<digits> x 10^exp, digits without leading/trailing zeros ("" = zero).
+    The exponent goes through _ascii_int (clamped at 10**4000, far beyond any
+    digit count it is added to), so the verdict equals BigInt's."""
+    m = _DEF_FLOAT_RE.match(text)
+    if not m:
+        return None
+    int_part = m.group(2)
+    all_digits = int_part + (m.group(3) or "")
+    stripped = all_digits.lstrip("0")
+    if stripped == "":
+        return ("", 0)
+    leading_zeros = len(all_digits) - len(stripped)
+    e = _ascii_int(m.group(4).lstrip("+")) if m.group(4) is not None else 0
+    return (stripped.rstrip("0"), len(int_part) - leading_zeros + e)
+
+
+def _cmp_magnitude(a: tuple, b: tuple) -> int:
+    if a[0] == "" or b[0] == "":
+        return 0 if a[0] == b[0] else (-1 if a[0] == "" else 1)
+    if a[1] != b[1]:
+        return -1 if a[1] < b[1] else 1
+    w = max(len(a[0]), len(b[0]))
+    da, db = a[0].ljust(w, "0"), b[0].ljust(w, "0")
+    return -1 if da < db else (1 if da > db else 0)
+
+
+def _check_stamp(literal: str, type_name: str, m, max_fraction: int, bounds: dict, offset_minutes: int | None = None) -> tuple[bool, str]:
+    frac = m.group(7) or ""
+    if len(frac) > max_fraction:
+        return False, f"'{literal}' has {len(frac)} fractional-second digits; {type_name} allows {max_fraction}"
+    stamp = _to_stamp(m)
+    lo, hi = _bound_stamp(bounds.get("min")), _bound_stamp(bounds.get("max"))
+    local = _canon_stamp(stamp)
+    if lo and local < _canon_stamp(lo):
+        return False, f"'{literal}' is before the minimum {bounds.get('min')} for {type_name}"
+    if hi and local > _canon_stamp(hi):
+        return False, f"'{literal}' is after the maximum {bounds.get('max')} for {type_name}"
+    if offset_minutes:
+        utc = _instant_key(stamp, offset_minutes)
+        if lo and utc < _instant_key(lo, 0):
+            return False, f"'{literal}' is before the minimum {bounds.get('min')} for {type_name} in UTC"
+        if hi and utc > _instant_key(hi, 0):
+            return False, f"'{literal}' is after the maximum {bounds.get('max')} for {type_name} in UTC"
+    return True, literal
+
+
 def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
-    """(ok, value) or (False, error). Mirrors sql-types.ts parseDefaultLiteral."""
+    """(ok, value) or (False, error). Mirrors sql-types.ts parseDefaultLiteral:
+    accepted only when SQL Server would convert the literal without error."""
     ok, parsed = parse_sql_type(sql_type_token)
     if not ok:
         return False, parsed
@@ -682,12 +790,12 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
         return False, "default literal must be non-empty"
     kind, args, name = parsed["literal"], parsed["args"], parsed["name"]
     types = _load_sqlserver_types() or {}
+    bounds = types.get(name.lower(), {}).get("bounds", {})
 
     if kind == "int":
         if not re.match(r"^-?[0-9]+\Z", literal, re.ASCII):
             return False, f"'{literal}' is not a valid int literal"
         n = _ascii_int(literal)
-        bounds = types.get(name.lower(), {}).get("bounds", {})
         # int(), never float: bigint's bounds are decimal strings in the
         # shared JSON (a JSON number cannot carry 2^63 exactly into JS).
         if "min" in bounds and n < int(bounds["min"]):
@@ -700,7 +808,7 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
             return False, f"'{literal}' is not a valid bit literal"
         return True, literal
     if kind == "decimal":
-        if not re.match(r"^-?[0-9]+(\.[0-9]+)?\Z", literal, re.ASCII):
+        if not _DEF_DECIMAL_RE.match(literal):
             return False, f"'{literal}' is not a valid decimal literal"
         if args["kind"] == "precision_scale":
             body_ = literal.lstrip("-")
@@ -710,10 +818,35 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
             trimmed_int = int_part.lstrip("0") or ""
             if len(trimmed_int) > args["precision"] - args["scale"]:
                 return False, f"'{literal}' has more integer digits than precision allows"
+        if "maxScale" in bounds:
+            # money/smallmoney: an exact count of 10^-4 units, compared as int.
+            scale = bounds["maxScale"]
+            units = _scaled_decimal(literal, scale)
+            if units is None:
+                return False, f"'{literal}' has more than {scale} decimal places for {name}"
+            lo = _scaled_decimal(bounds["min"], scale) if isinstance(bounds.get("min"), str) else None
+            hi = _scaled_decimal(bounds["max"], scale) if isinstance(bounds.get("max"), str) else None
+            if lo is not None and units < lo:
+                return False, f"'{literal}' is below the minimum {bounds['min']} for {name}"
+            if hi is not None and units > hi:
+                return False, f"'{literal}' is above the maximum {bounds['max']} for {name}"
         return True, literal
     if kind == "float":
-        if not re.match(r"^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?\Z", literal, re.ASCII):
+        mag = _float_magnitude(literal)
+        if mag is None:
             return False, f"'{literal}' is not a valid float literal"
+        # float(1..24) is the 4-byte real: it takes real's range.
+        is_real = args["kind"] == "mantissa" and "realMaxMantissa" in bounds and args["mantissa"] <= bounds["realMaxMantissa"]
+        rng = types.get("real", {}).get("bounds", {}) if is_real else bounds
+        shown = f"{name}({args['mantissa']})" if args["kind"] == "mantissa" else name
+        if mag[0] == "":
+            return True, literal
+        hi = _float_magnitude(rng["max"]) if isinstance(rng.get("max"), str) else None
+        lo = _float_magnitude(rng["minPositive"]) if "minPositive" in rng else None
+        if hi and _cmp_magnitude(mag, hi) > 0:
+            return False, f"'{literal}' exceeds the {shown} magnitude limit {rng.get('max')}"
+        if lo and _cmp_magnitude(mag, lo) < 0:
+            return False, f"'{literal}' is non-zero but smaller than the {shown} minimum magnitude {rng.get('minPositive')} (underflow)"
         return True, literal
     if kind == "string":
         if args["kind"] == "length" and _utf16_len(literal) > args["length"]:
@@ -721,9 +854,11 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
         return True, literal
     if kind == "date":
         m = _DEF_DATE_RE.match(literal)
-        if not m or not _is_real_date(int(m.group(1)), int(m.group(2)), int(m.group(3))):
+        if not m:
             return False, f"'{literal}' is not a valid date literal (YYYY-MM-DD)"
-        return True, literal
+        if not _is_real_date(int(m.group(1)), int(m.group(2)), int(m.group(3))):
+            return False, f"'{literal}' is not a real calendar date in 0001-01-01..9999-12-31"
+        return _check_stamp(literal, name, _DEF_DATETIME_RE.match(literal), 0, bounds)
     if kind == "datetime":
         m = _DEF_DATETIME_RE.match(literal)
         if not m:
@@ -732,23 +867,32 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
             return False, f"'{literal}' is not a real calendar date"
         if m.group(4) is not None and not _valid_time_parts(m.group(4), m.group(5), m.group(6)):
             return False, f"'{literal}' has an invalid time part"
-        return True, literal
+        max_fraction = args["fraction"] if args["kind"] == "fraction" else bounds.get("maxFraction", 7)
+        return _check_stamp(literal, name, m, max_fraction, bounds)
     if kind == "datetimeoffset":
         off = _DEF_OFFSET_RE.match(literal)
-        if not off:
-            return False, f"'{literal}' is not a valid datetimeoffset literal"
-        m = _DEF_DATETIME_RE.match(off.group(1))
-        if not m:
+        m = _DEF_DATETIME_RE.match(off.group(1)) if off else None
+        if not off or not m:
             return False, f"'{literal}' is not a valid datetimeoffset literal"
         if not _is_real_date(int(m.group(1)), int(m.group(2)), int(m.group(3))):
             return False, f"'{literal}' is not a real calendar date"
         if m.group(4) is not None and not _valid_time_parts(m.group(4), m.group(5), m.group(6)):
             return False, f"'{literal}' has an invalid time part"
-        return True, literal
+        offset_minutes = 0
+        if off.group(2) != "Z":
+            oh, om = int(off.group(4)), int(off.group(5))
+            if om > 59 or oh * 60 + om > bounds.get("maxOffsetMinutes", 840):
+                return False, f"'{literal}' has an offset outside -14:00..+14:00 (minutes 00..59)"
+            offset_minutes = (-1 if off.group(3) == "-" else 1) * (oh * 60 + om)
+        max_fraction = args["fraction"] if args["kind"] == "fraction" else 7
+        return _check_stamp(literal, name, m, max_fraction, bounds, offset_minutes)
     if kind == "time":
         m = _DEF_TIME_RE.match(literal)
         if not m or not _valid_time_parts(m.group(1), m.group(2), m.group(3)):
             return False, f"'{literal}' is not a valid time literal (HH:MM[:SS[.f]])"
+        max_fraction = args["fraction"] if args["kind"] == "fraction" else 7
+        if len(m.group(4) or "") > max_fraction:
+            return False, f"'{literal}' has {len(m.group(4) or '')} fractional-second digits; {name} allows {max_fraction}"
         return True, literal
     if kind == "uuid":
         if not _DEF_UUID_RE.match(literal):

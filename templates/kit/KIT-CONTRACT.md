@@ -177,19 +177,26 @@ SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId
 
 Case-insensitive (`NVARCHAR(MAX)` = `nvarchar(max)`); a type is one token, no whitespace.
 
-| Type | Args |
-|---|---|
-| `bit` | none |
-| `tinyint` / `smallint` / `int` | none (bounded: 0..255 / -32768..32767 / int32) |
-| `bigint` | none (bounded: int64) |
-| `decimal(p[,s])` / `numeric(p[,s])` | precision 1..38, scale 0..precision |
-| `money` / `smallmoney` | none |
-| `float` / `real` | none |
-| `char(n)` / `nchar(n)` | length, max 8000 / 4000 |
-| `varchar(n\|max)` / `nvarchar(n\|max)` | length or `max`, max 8000 / 4000 |
-| `date` / `datetime` / `smalldatetime` | none |
-| `datetime2[(0..7)]` / `time[(0..7)]` / `datetimeoffset[(0..7)]` | fractional-seconds precision |
-| `uniqueidentifier` | none |
+| Type | Args | A `default=` literal must be |
+|---|---|---|
+| `bit` | none | `0`, `1`, `true` or `false` |
+| `tinyint` / `smallint` / `int` / `bigint` | none | an integer in 0..255 / -32768..32767 / int32 / int64 |
+| `decimal(p[,s])` / `numeric(p[,s])` | precision 1..38, scale 0..precision (bare = `(18,0)`) | at most `s` decimals and `p-s` integer digits |
+| `money` / `smallmoney` | none | at most 4 decimals, within ±922,337,203,685,477.5808 (max …5807) / ±214,748.3648 (max …3647) |
+| `float[(n)]` / `real` | `n` 1..53 (1..24 is `real`) | `0`, or a magnitude in 2.23E-308..1.79E+308 (`real`: 1.18E-38..3.40E+38); smaller non-zero values are rejected as underflow |
+| `char(n)` / `nchar(n)` | length, max 8000 / 4000 | at most `n` UTF-16 units |
+| `varchar(n\|max)` / `nvarchar(n\|max)` | length or `max`, max 8000 / 4000 | at most `n` UTF-16 units |
+| `date` | none | `YYYY-MM-DD`, a real calendar date in 0001-01-01..9999-12-31 |
+| `datetime` / `smalldatetime` | none | `YYYY-MM-DD[THH:MM[:SS[.fff]]]` in 1753-01-01..9999-12-31T23:59:59.997 / 1900-01-01..2079-06-06T23:59:29.998, ≤ 3 fractional digits |
+| `datetime2[(0..7)]` | fractional-seconds scale (default 7) | as `datetime`, 0001-01-01..9999-12-31, ≤ scale fractional digits |
+| `datetimeoffset[(0..7)]` | fractional-seconds scale (default 7) | as `datetime2` plus `Z` or `±HH:MM` within ±14:00; the UTC instant must also be in range |
+| `time[(0..7)]` | fractional-seconds scale (default 7) | `HH:MM[:SS[.f]]`, ≤ scale fractional digits |
+| `uniqueidentifier` | none | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (hex, no braces) |
+
+The ranges are data in `sqlserver-types.v1.json` and are compared exactly (integers and
+digit strings, never floating point), so the offline tools and the server always agree.
+Stricter than SQL Server in a few places on purpose: extra decimals or fractional-second
+digits are rejected rather than rounded.
 
 ### Text rules (how every sources check reads text)
 

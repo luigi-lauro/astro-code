@@ -248,3 +248,25 @@ print(json.dumps(out))
   assert.deepEqual(out.lines, ['a', 'b c\rd', '\x85e\r', '']);
   assert.equal(out.utf16, 4);
 });
+
+// r5 (C12): every type's default is range-checked against SQL Server's
+// documented limits. Same table as astro's sql-types.test.ts — the shared
+// corpus's `default_literals` (byte-identical in both repos).
+test('parse_default_literal applies SQL Server ranges (shared default_literals table)', { skip: !hasPython }, () => {
+  const corpus = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/source-spec-cases.json'), 'utf8'));
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(TOOLS_DIR)})
+import kit_test
+cases = json.loads(sys.stdin.read())
+print(json.dumps([kit_test.parse_default_literal(c["type"], c["literal"])[0] for c in cases]))
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8', input: JSON.stringify(corpus.default_literals) });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const verdicts = JSON.parse(res.stdout);
+  const wrong = corpus.default_literals
+    .map((c, i) => ({ ...c, got: verdicts[i] }))
+    .filter((c) => c.got !== c.ok)
+    .map((c) => `${c.type} default=${c.literal.slice(0, 40)} expected ok=${c.ok} got ${c.got}${c.note ? ` (${c.note})` : ''}`);
+  assert.deepEqual(wrong, []);
+});
