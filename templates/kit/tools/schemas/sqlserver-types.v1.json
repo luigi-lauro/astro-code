@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "types": [
+    { "name": "bit", "args": "none", "literal": "bit" },
+    { "name": "tinyint", "args": "none", "literal": "int", "bounds": { "min": 0, "max": 255 } },
+    { "name": "smallint", "args": "none", "literal": "int", "bounds": { "min": -32768, "max": 32767 } },
+    { "name": "int", "args": "none", "literal": "int", "bounds": { "min": -2147483648, "max": 2147483647 } },
+    { "name": "bigint", "args": "none", "literal": "int" },
+    { "name": "decimal", "args": "precision_scale", "literal": "decimal", "bounds": { "maxPrecision": 38 } },
+    { "name": "numeric", "args": "precision_scale", "literal": "decimal", "bounds": { "maxPrecision": 38 } },
+    { "name": "money", "args": "none", "literal": "decimal" },
+    { "name": "smallmoney", "args": "none", "literal": "decimal" },
+    { "name": "float", "args": "none", "literal": "float" },
+    { "name": "real", "args": "none", "literal": "float" },
+    { "name": "char", "args": "length", "literal": "string", "bounds": { "maxLength": 8000 } },
+    { "name": "varchar", "args": "length_or_max", "literal": "string", "bounds": { "maxLength": 8000 } },
+    { "name": "nchar", "args": "length", "literal": "string", "bounds": { "maxLength": 4000 } },
+    { "name": "nvarchar", "args": "length_or_max", "literal": "string", "bounds": { "maxLength": 4000 } },
+    { "name": "date", "args": "none", "literal": "date" },
+    { "name": "datetime", "args": "none", "literal": "datetime" },
+    { "name": "datetime2", "args": "fraction", "literal": "datetime" },
+    { "name": "smalldatetime", "args": "none", "literal": "datetime" },
+    { "name": "datetimeoffset", "args": "fraction", "literal": "datetimeoffset" },
+    { "name": "time", "args": "fraction", "literal": "time" },
+    { "name": "uniqueidentifier", "args": "none", "literal": "uuid" }
+  ]
+}

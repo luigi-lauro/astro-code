@@ -562,10 +562,542 @@ def validate_source_schema(data, source_id: str) -> tuple[list, list]:
     return errors, warnings
 
 
+# ── Phase 102 (a4): SQL Server type list + named-query header parser ───────
+# Line-for-line ports of astro's sql-types.ts, sql-guard.ts and
+# source-query.ts (t4/t5/t6). Data-driven from schemas/sqlserver-types.v1.json
+# (byte-identical to astro's copy; t9 enforces parity), loaded lazily and only
+# when a source query is actually checked — kit_test.py stays standalone
+# (tests/kit_run_local.test.mjs copies it alone). A missing type file is a
+# SRC FAIL with a clear message, never a traceback.
+
+_SQLSERVER_TYPES_CACHE: dict | None = None
+_SQLSERVER_TYPES_LOAD_ERROR: str | None = None
+
+
+def _load_sqlserver_types() -> dict | None:
+    global _SQLSERVER_TYPES_CACHE, _SQLSERVER_TYPES_LOAD_ERROR
+    if _SQLSERVER_TYPES_CACHE is not None:
+        return _SQLSERVER_TYPES_CACHE
+    if _SQLSERVER_TYPES_LOAD_ERROR is not None:
+        return None
+    path = Path(__file__).resolve().parent / "schemas" / "sqlserver-types.v1.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _SQLSERVER_TYPES_LOAD_ERROR = f"sqlserver-types.v1.json unavailable: {exc}"
+        return None
+    _SQLSERVER_TYPES_CACHE = {t["name"].lower(): t for t in doc.get("types", [])}
+    return _SQLSERVER_TYPES_CACHE
+
+
+_SQLTYPE_TOKEN_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*)(?:\(([^()]*)\))?$")
+
+
+def parse_sql_type(token) -> tuple[bool, dict | str]:
+    """(ok, {name, literal, args}) or (False, error). Mirrors sql-types.ts."""
+    types = _load_sqlserver_types()
+    if types is None:
+        return False, _SQLSERVER_TYPES_LOAD_ERROR or "sqlserver-types.v1.json unavailable"
+    if not isinstance(token, str) or token != token.strip() or token == "":
+        return False, f"empty or malformed sqltype: {token!r}"
+    if re.search(r"\s", token):
+        return False, f"sqltype must be a single token with no whitespace: '{token}'"
+    m = _SQLTYPE_TOKEN_RE.match(token)
+    if not m:
+        return False, f"malformed sqltype: '{token}'"
+    raw_name, raw_args = m.group(1), m.group(2)
+    d = types.get(raw_name.lower())
+    if d is None:
+        return False, f"unknown sqltype: '{raw_name}'"
+    name, literal, args_kind, bounds = d["name"], d["literal"], d["args"], d.get("bounds", {})
+
+    if args_kind == "none":
+        if raw_args is not None:
+            return False, f"{name} takes no arguments: '{token}'"
+        return True, {"name": name, "literal": literal, "args": {"kind": "none"}}
+    if args_kind == "length":
+        if raw_args is None:
+            return False, f"{name} requires (n): '{token}'"
+        if not re.match(r"^[1-9][0-9]*$", raw_args):
+            return False, f"{name} length must be a positive integer: '{token}'"
+        length = int(raw_args)
+        max_len = bounds.get("maxLength")
+        if max_len and length > max_len:
+            return False, f"{name}({length}) exceeds max length {max_len}"
+        return True, {"name": name, "literal": literal, "args": {"kind": "length", "length": length}}
+    if args_kind == "length_or_max":
+        if raw_args is None:
+            return False, f"{name} requires (n) or (max): '{token}'"
+        if raw_args.lower() == "max":
+            return True, {"name": name, "literal": literal, "args": {"kind": "max"}}
+        if not re.match(r"^[1-9][0-9]*$", raw_args):
+            return False, f"{name} length must be a positive integer or 'max': '{token}'"
+        length = int(raw_args)
+        max_len = bounds.get("maxLength")
+        if max_len and length > max_len:
+            return False, f"{name}({length}) exceeds max length {max_len}"
+        return True, {"name": name, "literal": literal, "args": {"kind": "length", "length": length}}
+    if args_kind == "precision_scale":
+        if raw_args is None:
+            return True, {"name": name, "literal": literal, "args": {"kind": "precision_scale", "precision": 18, "scale": 0}}
+        pm = re.match(r"^([0-9]+)(?:,([0-9]+))?$", raw_args)
+        if not pm:
+            return False, f"{name} args must be (p) or (p,s): '{token}'"
+        precision = int(pm.group(1))
+        scale = int(pm.group(2)) if pm.group(2) is not None else 0
+        max_p = bounds.get("maxPrecision", 38)
+        if precision < 1 or precision > max_p:
+            return False, f"{name} precision must be 1..{max_p}: '{token}'"
+        if scale < 0 or scale > precision:
+            return False, f"{name} scale must be 0..precision: '{token}'"
+        return True, {"name": name, "literal": literal, "args": {"kind": "precision_scale", "precision": precision, "scale": scale}}
+    if args_kind == "fraction":
+        if raw_args is None:
+            return True, {"name": name, "literal": literal, "args": {"kind": "fraction", "fraction": 7}}
+        if not re.match(r"^[0-7]$", raw_args):
+            return False, f"{name} fraction must be 0..7: '{token}'"
+        return True, {"name": name, "literal": literal, "args": {"kind": "fraction", "fraction": int(raw_args)}}
+    return False, f"unsupported args kind {args_kind!r} for {name}"  # pragma: no cover — data drift guard
+
+
+_DEF_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_DEF_DATETIME_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,7}))?)?)?$")
+_DEF_TIME_RE = re.compile(r"^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,7}))?)?$")
+_DEF_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _is_real_date(y: int, mo: int, d: int) -> bool:
+    import datetime as _dt
+    try:
+        _dt.date(y, mo, d)
+        return True
+    except ValueError:
+        return False
+
+
+def _valid_time_parts(h: str, mi: str, s: str | None = None) -> bool:
+    hh, mm = int(h), int(mi)
+    ss = int(s) if s is not None else 0
+    return 0 <= hh <= 23 and 0 <= mm <= 59 and 0 <= ss <= 59
+
+
+def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
+    """(ok, value) or (False, error). Mirrors sql-types.ts parseDefaultLiteral."""
+    ok, parsed = parse_sql_type(sql_type_token)
+    if not ok:
+        return False, parsed
+    if not isinstance(literal, str) or literal == "":
+        return False, "default literal must be non-empty"
+    kind, args, name = parsed["literal"], parsed["args"], parsed["name"]
+    types = _load_sqlserver_types() or {}
+
+    if kind == "int":
+        if not re.match(r"^-?[0-9]+$", literal):
+            return False, f"'{literal}' is not a valid int literal"
+        n = int(literal)
+        bounds = types.get(name.lower(), {}).get("bounds", {})
+        if "min" in bounds and n < bounds["min"]:
+            return False, f"'{literal}' is below the minimum for {name}"
+        if "max" in bounds and n > bounds["max"]:
+            return False, f"'{literal}' is above the maximum for {name}"
+        return True, literal
+    if kind == "bit":
+        if literal not in ("0", "1", "true", "false"):
+            return False, f"'{literal}' is not a valid bit literal"
+        return True, literal
+    if kind == "decimal":
+        if not re.match(r"^-?[0-9]+(\.[0-9]+)?$", literal):
+            return False, f"'{literal}' is not a valid decimal literal"
+        if args["kind"] == "precision_scale":
+            body_ = literal.lstrip("-")
+            int_part, _, frac_part = body_.partition(".")
+            if len(frac_part) > args["scale"]:
+                return False, f"'{literal}' has more decimal places than scale {args['scale']}"
+            trimmed_int = int_part.lstrip("0") or ""
+            if len(trimmed_int) > args["precision"] - args["scale"]:
+                return False, f"'{literal}' has more integer digits than precision allows"
+        return True, literal
+    if kind == "float":
+        if not re.match(r"^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$", literal):
+            return False, f"'{literal}' is not a valid float literal"
+        return True, literal
+    if kind == "string":
+        if args["kind"] == "length" and len(literal) > args["length"]:
+            return False, f"'{literal}' is longer than the declared length {args['length']}"
+        return True, literal
+    if kind == "date":
+        m = _DEF_DATE_RE.match(literal)
+        if not m or not _is_real_date(int(m.group(1)), int(m.group(2)), int(m.group(3))):
+            return False, f"'{literal}' is not a valid date literal (YYYY-MM-DD)"
+        return True, literal
+    if kind == "datetime":
+        m = _DEF_DATETIME_RE.match(literal)
+        if not m:
+            return False, f"'{literal}' is not a valid datetime literal"
+        if not _is_real_date(int(m.group(1)), int(m.group(2)), int(m.group(3))):
+            return False, f"'{literal}' is not a real calendar date"
+        if m.group(4) is not None and not _valid_time_parts(m.group(4), m.group(5), m.group(6)):
+            return False, f"'{literal}' has an invalid time part"
+        return True, literal
+    if kind == "datetimeoffset":
+        off = re.match(r"^(.*?)(Z|[+-]\d{2}:\d{2})$", literal)
+        if not off:
+            return False, f"'{literal}' is not a valid datetimeoffset literal"
+        m = _DEF_DATETIME_RE.match(off.group(1))
+        if not m:
+            return False, f"'{literal}' is not a valid datetimeoffset literal"
+        if not _is_real_date(int(m.group(1)), int(m.group(2)), int(m.group(3))):
+            return False, f"'{literal}' is not a real calendar date"
+        if m.group(4) is not None and not _valid_time_parts(m.group(4), m.group(5), m.group(6)):
+            return False, f"'{literal}' has an invalid time part"
+        return True, literal
+    if kind == "time":
+        m = _DEF_TIME_RE.match(literal)
+        if not m or not _valid_time_parts(m.group(1), m.group(2), m.group(3)):
+            return False, f"'{literal}' is not a valid time literal (HH:MM[:SS[.f]])"
+        return True, literal
+    if kind == "uuid":
+        if not _DEF_UUID_RE.match(literal):
+            return False, f"'{literal}' is not a valid uniqueidentifier literal"
+        return True, literal
+    return False, f"unsupported literal kind {kind!r}"  # pragma: no cover — data drift guard
+
+
+# ── Body scan and single-SELECT guard (mirrors sql-guard.ts, t5) ───────────
+
+_FORBIDDEN_KEYWORDS = [
+    "INSERT", "UPDATE", "DELETE", "MERGE", "EXEC", "EXECUTE", "DROP", "ALTER",
+    "CREATE", "TRUNCATE", "GRANT", "REVOKE", "DENY", "INTO", "DECLARE",
+    "OPENROWSET", "OPENQUERY", "OPENDATASOURCE", "BULK", "DBCC", "BACKUP",
+    "RESTORE", "SHUTDOWN", "KILL", "USE", "WAITFOR", "RECONFIGURE",
+]
+_FORBIDDEN_RE = re.compile(r"\b(" + "|".join(_FORBIDDEN_KEYWORDS) + r")\b", re.IGNORECASE)
+_FIRST_KEYWORD_RE = re.compile(r"^\s*([A-Za-z]+)\b")
+_BODY_PARAM_RE = re.compile(r"(?<!@)@([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def strip_sql(sql: str) -> str:
+    out: list[str] = []
+    i, n = 0, len(sql)
+    while i < n:
+        c = sql[i]
+        c2 = sql[i + 1] if i + 1 < n else ""
+        if c == "-" and c2 == "-":
+            while i < n and sql[i] != "\n":
+                i += 1
+            out.append(" ")
+            continue
+        if c == "/" and c2 == "*":
+            depth = 1
+            i += 2
+            while i < n and depth > 0:
+                pair = sql[i:i + 2]
+                if pair == "/*":
+                    depth += 1
+                    i += 2
+                elif pair == "*/":
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            out.append(" ")
+            continue
+        if c == "'":
+            i += 1
+            while i < n:
+                if sql[i:i + 2] == "''":
+                    i += 2
+                    continue
+                if sql[i] == "'":
+                    i += 1
+                    break
+                i += 1
+            out.append(" ")
+            continue
+        if c == "[":
+            i += 1
+            while i < n and sql[i] != "]":
+                i += 1
+            if i < n:
+                i += 1
+            out.append(" ")
+            continue
+        if c == '"':
+            i += 1
+            while i < n:
+                if sql[i:i + 2] == '""':
+                    i += 2
+                    continue
+                if sql[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            out.append(" ")
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def check_single_select(body: str) -> tuple[bool, str | None]:
+    trimmed = strip_sql(body).strip()
+    if trimmed.endswith(";"):
+        trimmed = trimmed[:-1].strip()
+    if len(trimmed) == 0:
+        return False, "empty query body"
+    if ";" in trimmed:
+        return False, "body must be a single statement (unexpected ';')"
+    m = _FIRST_KEYWORD_RE.match(trimmed)
+    first_keyword = m.group(1).upper() if m else None
+    if first_keyword not in ("SELECT", "WITH"):
+        return False, "body must start with SELECT or WITH"
+    fm = _FORBIDDEN_RE.search(trimmed)
+    if fm:
+        return False, f"body contains a forbidden keyword: {fm.group(1).upper()}"
+    return True, None
+
+
+def scan_body_params(body: str) -> list[str]:
+    stripped = strip_sql(body)
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _BODY_PARAM_RE.finditer(stripped):
+        name = m.group(1)
+        key = name.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(name)
+    return out
+
+
+# ── Named-query header parser (mirrors source-query.ts, t6) ────────────────
+
+_QNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_QPARAM_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_QTAG_LINE_RE = re.compile(r"^--\s*@([A-Za-z_][A-Za-z0-9_]*)(?:\s+(.*))?$")
+_QMAX_ROWS_RE = re.compile(r"^[1-9][0-9]*$")
+
+
+def _split_outside_parens(text: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        if ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(ch)
+    parts.append("".join(current))
+    return parts
+
+
+def _parse_default_trailer(trailing: str) -> tuple[bool, str | None]:
+    t = trailing.strip()
+    if t == "":
+        return True, None
+    m = re.match(r"^default=(.*)$", t)
+    if not m:
+        return False, None
+    rest = m.group(1)
+    if rest.startswith("'"):
+        i = 1
+        chars: list[str] = []
+        while i < len(rest):
+            if rest[i:i + 2] == "''":
+                chars.append("'")
+                i += 2
+                continue
+            if rest[i] == "'":
+                i += 1
+                break
+            chars.append(rest[i])
+            i += 1
+        if i != len(rest):
+            return False, None
+        return True, "".join(chars)
+    if re.search(r"\s", rest) or rest == "":
+        return False, None
+    return True, rest
+
+
+def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[tuple[str, str, str, str]], dict | None]:
+    """Returns (errors, query). errors are (check, source_id, file, message)
+    tuples, matching validate_source_schema's shape."""
+    errors: list[tuple[str, str, str, str]] = []
+
+    def err(check: str, message: str) -> None:
+        errors.append((check, source_id, file_name, message))
+
+    stem = re.sub(r"\.sql$", "", file_name, flags=re.IGNORECASE)
+    lines = re.split(r"\r\n|\n", text)
+
+    i = 0
+    header_lines: list[str] = []
+    while i < len(lines) and (lines[i].strip() == "" or lines[i].startswith("--")):
+        header_lines.append(lines[i])
+        i += 1
+    body = "\n".join(lines[i:])
+
+    name_value: str | None = None
+    name_count = 0
+    description_value: str | None = None
+    description_count = 0
+    params: list[dict] = []
+    param_names_seen: set[str] = set()
+    returns_raw: str | None = None
+    returns_count = 0
+    max_rows_value: int | None = None
+    max_rows_count = 0
+
+    for line in header_lines:
+        m = _QTAG_LINE_RE.match(line)
+        if not m:
+            continue
+        tag, raw_rest = m.group(1), m.group(2)
+        rest = (raw_rest or "").strip()
+
+        if tag == "name":
+            name_count += 1
+            name_value = rest
+        elif tag == "description":
+            description_count += 1
+            description_value = rest
+        elif tag == "param":
+            pm = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s+(\S+)\s+(required|optional)\b(.*)$", rest)
+            if not pm:
+                err("SRC-10", f"malformed @param line: '{line.strip()}'")
+                continue
+            pname, sqltype, qualifier, trailer = pm.group(1), pm.group(2), pm.group(3), pm.group(4)
+            if not _QPARAM_NAME_PATTERN.match(pname):
+                err("SRC-10", f"@param name '{pname}' is not a valid identifier")
+                continue
+            key = pname.lower()
+            if key in param_names_seen:
+                err("SRC-10", f"duplicate @param name '{pname}'")
+                continue
+            param_names_seen.add(key)
+
+            type_ok, type_result = parse_sql_type(sqltype)
+            if not type_ok:
+                err("SRC-10", f"@param {pname}: {type_result}")
+                continue
+
+            trailer_ok, trailer_literal = _parse_default_trailer(trailer)
+            if not trailer_ok:
+                err("SRC-10", f"@param {pname}: malformed trailing text '{trailer.strip()}'")
+                continue
+            has_default = trailer_literal is not None
+            if has_default and qualifier == "required":
+                err("SRC-10", f"@param {pname}: default is only allowed on optional params")
+                continue
+            if has_default:
+                lit_ok, lit_result = parse_default_literal(sqltype, trailer_literal)
+                if not lit_ok:
+                    err("SRC-10", f"@param {pname}: default '{trailer_literal}' does not parse for {sqltype}: {lit_result}")
+                    continue
+
+            param = {"name": pname, "sqlType": sqltype, "required": qualifier == "required"}
+            if has_default:
+                param["default"] = trailer_literal
+            params.append(param)
+        elif tag == "returns":
+            returns_count += 1
+            returns_raw = rest
+        elif tag == "max_rows":
+            max_rows_count += 1
+            if not _QMAX_ROWS_RE.match(rest):
+                err("SRC-12", f"@max_rows must be a positive integer: '{rest}'")
+            else:
+                max_rows_value = int(rest)
+        else:
+            err("SRC-08", f"unknown tag '@{tag}'")
+
+    if name_count == 0:
+        err("SRC-08", "missing @name")
+    elif name_count > 1:
+        err("SRC-08", "duplicate @name")
+    elif name_value != stem:
+        err("SRC-08", f"@name '{name_value}' must equal the file stem '{stem}'")
+    elif not _QNAME_PATTERN.match(name_value or ""):
+        err("SRC-08", f"@name '{name_value}' must match ^[a-z][a-z0-9_]{{0,63}}$")
+
+    if description_count == 0:
+        err("SRC-08", "missing @description")
+    elif description_count > 1:
+        err("SRC-08", "duplicate @description")
+    elif not description_value:
+        err("SRC-08", "@description must be non-empty")
+
+    if max_rows_count > 1:
+        err("SRC-12", "duplicate @max_rows")
+
+    returns: list[dict] = []
+    if returns_count == 0:
+        err("SRC-11", "missing @returns")
+    elif returns_count > 1:
+        err("SRC-11", "duplicate @returns")
+    elif not returns_raw or returns_raw.strip() == "":
+        err("SRC-11", "@returns must declare at least one column")
+    else:
+        seen_cols: set[str] = set()
+        for piece in _split_outside_parens(returns_raw):
+            p = piece.strip()
+            if p == "":
+                err("SRC-11", "@returns has an empty column entry")
+                continue
+            cm = re.match(r"^(\S+)\s+(\S+)$", p)
+            if not cm:
+                err("SRC-11", f"@returns column '{p}' must be 'Col sqltype'")
+                continue
+            col_name, sqltype = cm.group(1), cm.group(2)
+            if not _QPARAM_NAME_PATTERN.match(col_name):
+                err("SRC-11", f"@returns column name '{col_name}' is not a valid identifier")
+                continue
+            key = col_name.lower()
+            if key in seen_cols:
+                err("SRC-11", f"duplicate @returns column '{col_name}'")
+                continue
+            type_ok, type_result = parse_sql_type(sqltype)
+            if not type_ok:
+                err("SRC-11", f"@returns column {col_name}: {type_result}")
+                continue
+            seen_cols.add(key)
+            returns.append({"name": col_name, "sqlType": sqltype})
+
+    guard_ok, guard_reason = check_single_select(body)
+    if not guard_ok:
+        err("SRC-13", guard_reason or "body is not a single SELECT")
+
+    raw_body_params = scan_body_params(body)
+    body_param_keys = {p.lower() for p in raw_body_params}
+    declared_keys = {p["name"].lower() for p in params}
+    for bp_key in sorted(body_param_keys):
+        if bp_key not in declared_keys:
+            original = next((p for p in raw_body_params if p.lower() == bp_key), bp_key)
+            err("SRC-09", f"body references undeclared param '@{original}'")
+    for p in params:
+        if p["name"].lower() not in body_param_keys:
+            err("SRC-09", f"declared @param '{p['name']}' is never used in the body")
+
+    if errors:
+        return errors, None
+
+    query: dict = {"name": name_value, "params": params, "returns": returns}
+    if max_rows_count > 0 and max_rows_value is not None:
+        query["maxRows"] = max_rows_value
+    return errors, query
+
+
 def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
-    """SRC-05..07: per-source schema.yaml presence + validity. Runs against
-    the AUTHORED tree (src/sources/<id>/...), not the zip layout — the zip
-    check (SRC-04, adhoc/SRC-14, query checks) lands in a4/a5."""
+    """SRC-05..14: per-source schema.yaml presence + validity, plus named
+    query header/body checks. Runs against the AUTHORED tree
+    (src/sources/<id>/...), not the zip layout — the zip-only checks
+    (SRC-04 SOURCE.md, SRC-14 adhoc) land in a5."""
     if not isinstance(manifest, dict):
         return
     sources = manifest.get("sources")
@@ -595,6 +1127,15 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
             rep.fail("sources", check, f"{sid}: {file}: {msg}")
         for check, sid, file, msg in warnings:
             rep.warn("sources", check, f"{sid}: {file}: {msg}")
+
+        # ── SRC-08..13: named queries (direct *.sql children of queries/) ──
+        queries_dir = src_dir / "queries"
+        if queries_dir.is_dir():
+            for qfile in sorted(p for p in queries_dir.iterdir() if p.is_file() and p.suffix.lower() == ".sql"):
+                qtext = qfile.read_text(encoding="utf-8")
+                qerrors, _query = check_named_query(source_id, qfile.name, qtext)
+                for check, sid, file, msg in qerrors:
+                    rep.fail("sources", check, f"{sid}: {file}: {msg}")
 
 
 def load_recipe(path: Path) -> tuple[dict, str]:
