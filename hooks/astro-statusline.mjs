@@ -257,7 +257,7 @@ if (branch && rowWidth) {
   const bounded = [base, claude, rateLimitsFull, cacheWide, project, update].filter(Boolean);
   const spent = visibleWidth(bounded.join(STATUS_SEP)) + (bounded.length ? visibleWidth(STATUS_SEP) : 0);
   const room = rowWidth - spent;
-  if (room < BRANCH_MIN) branchWide = '';
+  if (room < Math.min(BRANCH_MIN, visibleWidth(branch))) branchWide = '';   // a short branch that fits is shown whole
   else if (room < visibleWidth(branch)) branchWide = truncateVisible(branch, room);
 }
 
