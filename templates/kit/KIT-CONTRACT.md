@@ -59,6 +59,151 @@ Artifacts are objects `{ "path": "<relative path>", "tags": ["email_attachment"]
 Astro attaches when replying by email. Zero tagged artifacts = text-only reply.
 Many equally-primary files? Bundle them into one zip and tag the zip.
 
+## Data sources (`sources[]`, manifest phase 102)
+
+A kit may declare SQL Server data sources it reads at run time. **No credentials,
+connection strings or hosts ever go in the kit** — bindings (which database a source
+points at, and its login) live in astroport, never here (ADR-012).
+
+### Anatomy
+
+```
+src/sources/<id>/
+├── SOURCE.md      # REQUIRED — what this source is, in prose
+├── schema.yaml     # REQUIRED — tables/columns Astro can query
+└── queries/         # OPTIONAL — named, deterministic SQL
+    └── <name>.sql
+```
+
+### `sources[]` in kit.json
+
+```json
+"sources": [
+  { "id": "erp", "engine": "sqlserver", "access": "read_only", "description": "ERP" }
+]
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `id` | yes | `^[a-z][a-z0-9_-]{0,31}$`, unique in the kit, STABLE — renaming is a new source and orphans the old binding |
+| `engine` | yes | strict enum, `sqlserver` only |
+| `access` | yes | strict enum, `read_only` only |
+| `required` | no | boolean, defaults to `true`; phase 105 refuses a job at submit if a required source is unbound |
+| `adhoc` | no | boolean, defaults to `true`. `false` means the agent may run ONLY this source's named queries — free SQL is rejected — and the source must declare at least one named query |
+| `description` | yes | 1..500 chars |
+
+**A non-empty `sources[]` requires `contract_version` to satisfy `^1.1.0`** — the
+runtime tools that consume sources ship in phase 105, and an instance still on the
+1.0.0 runtime contract must never see this kit, so it is simply filtered out rather
+than crashing on tools it does not have.
+
+### `schema.yaml` shape
+
+```yaml
+version: 1
+tables:
+  dbo.Orders:
+    purpose: Order header records
+    kind: table
+    columns:
+      OrderId:
+        meaning: Primary key
+        type: int
+        key: true
+      CustomerId:
+        meaning: Customer reference
+        type: int
+      Total:
+        meaning: Order total
+        type: decimal(18,2)
+```
+
+- Table keys are **schema-qualified** (`dbo.Orders`, or bracketed `[dbo].[v_Open Orders]`)
+  — an unqualified key like `v_OpenOrders` is rejected.
+- Every table needs `purpose`; every column needs `meaning`. `kind` (`table`|`view`),
+  `grain`, `rows` (free text or a number), and `rules` (a string list) are optional on a
+  table; `type`, `key` (bool), `joins` (a `schema.table.column` reference), `unit`, `tz`,
+  `values` (an enum map) and `sensitive` (bool) are optional on a column.
+- Unknown keys are rejected everywhere in this file — a typo surfaces at publish, not at
+  query time.
+- A `joins` target that is not declared in this file is a WARNING, never a rejection —
+  joining to another kit's or another source's table is legitimate.
+- Use **block-style YAML** and literal `true`/`false` — the offline tool's fallback
+  parser (used when PyYAML is unavailable) only reads that subset, and both parsers must
+  agree on every kit.
+
+### Named queries (`src/sources/<id>/queries/<name>.sql`)
+
+Named queries are a **deterministic contract**, not samples: the header declares exactly
+what the query takes and returns, and phase 104 enforces it at run time so a changed
+database never silently feeds the kit different data.
+
+```sql
+-- @name open_orders
+-- @description Open orders for a customer
+-- @param CustomerId int required
+-- @returns OrderId int, Total decimal(18,2)
+SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId
+```
+
+- `-- @name <name>` — exactly once, must equal the file stem, `^[a-z][a-z0-9_]{0,63}$`.
+- `-- @description <text>` — exactly once, non-empty.
+- `-- @param <Name> <sqltype> required|optional [default=<literal>]` — zero or more.
+  The `required`/`optional` qualifier has no implicit default; a `default=` is legal
+  only on `optional`. Example forms: `@param Status nvarchar(20) optional default=Open`,
+  `@param Limit int optional default=100`, `@param Since date optional default=2026-01-01`.
+- `-- @returns <Col> <sqltype>, <Col> <sqltype>, ...` — **REQUIRED**, exactly once, at
+  least one column. Phase 104 fails the call at run time if the live result's columns
+  differ in name, order or type family from this declaration.
+- `-- @max_rows <n>` — optional, at most once, a positive integer (`^[1-9][0-9]*$`).
+- Every `@Name` used in the body must be declared, and every declared param must be used
+  (case-insensitive match, e.g. `@customerid` satisfies `@param CustomerId`).
+- The body must be a **single `SELECT` or `WITH … SELECT`** statement (one trailing `;`
+  and comments are fine): no `INSERT UPDATE DELETE MERGE EXEC EXECUTE DROP ALTER CREATE
+  TRUNCATE GRANT REVOKE DENY INTO DECLARE OPENROWSET OPENQUERY OPENDATASOURCE BULK DBCC
+  BACKUP RESTORE SHUTDOWN KILL USE WAITFOR RECONFIGURE`, no stacked statements. This is a
+  static guard — the real protection at run time is the read-only DB login (ADR-012) plus
+  phase 104's own re-check.
+
+### Supported SQL Server types (`schemas/sqlserver-types.v1.json`)
+
+Case-insensitive (`NVARCHAR(MAX)` = `nvarchar(max)`); a type is one token, no whitespace.
+
+| Type | Args |
+|---|---|
+| `bit` | none |
+| `tinyint` / `smallint` / `int` | none (bounded: 0..255 / -32768..32767 / int32) |
+| `bigint` | none |
+| `decimal(p[,s])` / `numeric(p[,s])` | precision 1..38, scale 0..precision |
+| `money` / `smallmoney` | none |
+| `float` / `real` | none |
+| `char(n)` / `nchar(n)` | length, max 8000 / 4000 |
+| `varchar(n\|max)` / `nvarchar(n\|max)` | length or `max`, max 8000 / 4000 |
+| `date` / `datetime` / `smalldatetime` | none |
+| `datetime2[(0..7)]` / `time[(0..7)]` / `datetimeoffset[(0..7)]` | fractional-seconds precision |
+| `uniqueidentifier` | none |
+
+### Check IDs
+
+Every rejection names the check ID plus the source id, file, param or column involved.
+
+| ID | Level | Rule |
+|---|---|---|
+| SRC-01 | FAIL | Invalid `sources[]` entry (id/engine/access/required/adhoc/description/unknown key) |
+| SRC-02 | FAIL | Duplicate source id |
+| SRC-03 | FAIL | Non-empty `sources` without `contract_version` satisfying `^1.1.0` |
+| SRC-04 | FAIL | `SOURCE.md` missing or empty |
+| SRC-05 | FAIL | `schema.yaml` missing |
+| SRC-06 | FAIL | `schema.yaml` fails to parse or breaks the shape |
+| SRC-07 | WARN | A `joins` target table is not declared in the same file — never blocks |
+| SRC-08 | FAIL | Malformed query header (`@name`/`@description`, unknown `@tag`) |
+| SRC-09 | FAIL | A body `@Param` is undeclared, or a declared param is unused |
+| SRC-10 | FAIL | Bad `@param` line (name, type, qualifier, default) |
+| SRC-11 | FAIL | Bad `@returns` (missing, empty, untyped/unknown column type, duplicate column) |
+| SRC-12 | FAIL | Bad `@max_rows` (not a positive integer, duplicated) |
+| SRC-13 | FAIL | Body is not a single `SELECT`/`WITH…SELECT` |
+| SRC-14 | FAIL | `adhoc: false` on a source with zero named queries |
+
 ## The recipe (`src/recipes/<id>.yaml`)
 
 The recipe is the kit's execution contract: `name`, `description`, `version`, and a
