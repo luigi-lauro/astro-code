@@ -25,12 +25,14 @@ const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NOW = 1_700_000_000; // fixed clock for deterministic activity-age math
 
 // Build a throwaway project with the given state + roadmap on disk.
-function project({ state = {}, roadmap = {}, plannedSlugs = [], discussedSlugs = [] } = {}) {
+function project({ state = {}, roadmap = {}, plannedSlugs = [], discussedSlugs = [], astrocode = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'ac-sl-'));
   const ac = join(root, '.astrocode');
   mkdirSync(ac, { recursive: true });
   writeFileSync(join(ac, 'state.json'), JSON.stringify(state));
   writeFileSync(join(ac, 'roadmap.json'), JSON.stringify(roadmap));
+  // Extra `.astrocode/` files (fixes.json, debt.json, …), e.g. for a longer project state.
+  for (const [name, body] of Object.entries(astrocode)) writeFileSync(join(ac, name), JSON.stringify(body));
   for (const slug of plannedSlugs) {
     mkdirSync(join(ac, 'phases', slug), { recursive: true });
     writeFileSync(join(ac, 'phases', slug, 'PLAN.md'), '# plan');
@@ -542,8 +544,9 @@ function runStatusline({
   columns = 200,
   branch = FIXTURE_BRANCH,
   model = FIXTURE_MODEL,
+  astrocode = {},
 } = {}) {
-  const root = project({ state: { project: 'demo' }, roadmap: ROADMAP });
+  const root = project({ state: { project: 'demo' }, roadmap: ROADMAP, astrocode });
   if (branch) {
     spawnSync('git', ['init', '-q', '-b', branch, root], { encoding: 'utf8' });
     spawnSync('git', ['-C', root, 'config', 'user.email', 'a@b.c'], { encoding: 'utf8' });
@@ -911,6 +914,45 @@ test('width sweep with a hot window + live reset countdown never lets the quota 
     if (!hasHot) seenGone = true;
     else assert.ok(!seenGone, `95% reappeared at ${columns} cols after being shed at a wider width:\n${out}`);
     for (const row of out.split('\n')) assert.ok(visibleWidth(row) <= columns, `row overflowed at ${columns}: ${row}`);
+  }
+});
+
+// A long project state — an open fix plus debt pressure — does not fit beside the
+// identity on row 1. It used to LEAD row 2 instead, and because `fitRow` drops every
+// segment that no longer fits, model/context, the quota (which D1 promises stays
+// visible) and the branch all vanished behind it. The state gets a row of its own; the width is
+// derived from the fixture's own project segment so it does not depend on slug lengths.
+test('a project state too long for row 1 gets its own row — model and quota are not crowded out', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const rateLimits = {
+    five_hour: { used_percentage: 5, resets_at: now + 3 * 3600 },
+    seven_day: { used_percentage: 31, resets_at: now + 5 * 86_400 },
+  };
+  const astrocode = {
+    'fixes.json': { fixes: [{ id: '2026-01-01-login-redirect-loses-the-return-url', title: 'login redirect', status: 'open' }] },
+    // Two open items on one file: the hotspot interest puts the register in the pay-now band.
+    'debt.json': { debt: [
+      { id: 'd1', status: 'open', cost: 'small', file: 'src/auth.js' },
+      { id: 'd2', status: 'open', cost: 'small', file: 'src/auth.js' },
+    ] },
+  };
+  const wide = runStatusline({ rateLimits, astrocode, columns: 300 }).stdout;
+  const projectSeg = wide.split(STATUS_SEP).find((s) => s.startsWith('⊡'));
+  assert.ok(projectSeg && /⚑ login-redirect/.test(projectSeg) && /debt 50/.test(projectSeg),
+    `precondition: the fixture's project segment carries the fix and the debt:\n${wide}`);
+  // Narrower than identity + state on one row (the `○ ` dot takes 2), wide enough for both quota numbers.
+  for (const columns of [visibleWidth(projectSeg) + 3, visibleWidth(projectSeg) - 7]) {
+    assert.ok(columns >= 90, `precondition: ${columns} cols keeps both quota numbers`);
+    const out = runStatusline({ rateLimits, astrocode, columns }).stdout;
+    const rows = out.split('\n');
+    for (const row of rows) assert.ok(visibleWidth(row) <= columns, `row overflowed at ${columns}: ${row}`);
+    assert.ok(rows.every((r) => r.trim().length > 0), `no empty row at ${columns} cols:\n${out}`);
+    assert.match(out, /⚑ login-redirect/, `the fix survives at ${columns} cols:\n${out}`);
+    assert.match(out, /Opus 5/, `the model survives at ${columns} cols:\n${out}`);
+    assert.match(out, /5h\s+5%/, `the 5h quota survives at ${columns} cols:\n${out}`);
+    assert.match(out, /7d\s+31%/, `the 7d quota survives at ${columns} cols:\n${out}`);
+    assert.match(out, /⎇ feature\//, `the branch survives at ${columns} cols:\n${out}`);
+    assert.ok(rows.length >= 3, `at ${columns} cols the state should have a row of its own:\n${out}`);
   }
 });
 
