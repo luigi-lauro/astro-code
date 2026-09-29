@@ -17,7 +17,7 @@ import {
   modelLimit, readContextTokens, readRecap, progressBar, renderClaudeSegment, renderRecap, truncate, phaseTrack,
   isBusy, renderStatus, SESSION_STALE_SECONDS,
   termWidth, visibleWidth, truncateVisible, packStatus, renderSegmentParts, STATUS_SEP,
-  rampColor, formatETA, renderRateLimits,
+  rampColor, formatETA, renderRateLimits, paceOvershoot, paceColor,
   renderPromptCache, formatClock, cacheMissLabel, CACHE_MISS_FRESH_SECONDS,
 } from '../hooks/_astro-ctx.mjs';
 
@@ -365,6 +365,46 @@ test('formatETA renders a relative duration, never a raw epoch, and clamps a pas
   assert.equal(formatETA(now + 7920, now), '2h12m');
   assert.equal(formatETA(now + 300, now), '5m');
   assert.equal(formatETA(now - 60, now), '0m', 'an already-passed reset never goes negative');
+});
+
+test('paceOvershoot: the window-average pace over the window, judged after 10% of it', () => {
+  const now = 1_000_000_000;
+  const day = 86_400;
+  const hour = 3600;
+  // 3 of 7 days gone (42.86%), 50% used -> 116.67% at the reset: +16.67.
+  assert.ok(Math.abs(paceOvershoot('seven_day', 50, now + 4 * day, now) - (50 * 7 / 3 - 100)) < 1e-9);
+  assert.equal(paceOvershoot('seven_day', 40, now + 4 * day, now), null, '93.3%: on track');
+  assert.equal(paceOvershoot('five_hour', 30, now + 4.75 * hour, now), null, 'only 5% of the window gone');
+  assert.ok(Math.abs(paceOvershoot('five_hour', 60, now + 2.5 * hour, now) - 20) < 1e-9, 'half gone, 60% used');
+  assert.equal(paceOvershoot('five_hour', 60, undefined, now), null, 'no reset time, no pace');
+  assert.equal(paceOvershoot('spend_limit', 60, now + hour, now), null, 'the spend cap has no window');
+});
+
+test('paceColor: dim up to 5%, green 10%, yellow 20%, orange 30%, red beyond', () => {
+  const [dim, green, yellow, orange, red] = [0.5, 10, 20, 30, 162].map(paceColor);
+  assert.equal(paceColor(5), dim);
+  assert.equal(paceColor(5.01), green);
+  assert.equal(paceColor(10), green);
+  assert.equal(paceColor(15), yellow);
+  assert.equal(paceColor(25), orange);
+  assert.equal(paceColor(30.1), red);
+  assert.equal(new Set([dim, green, yellow, orange, red]).size, 5, 'five distinct colours');
+});
+
+test('renderRateLimits appends each outpacing window its pace, in every tier that shows it', () => {
+  const now = 1_000_000_000;
+  const rateLimits = {
+    five_hour: { used_percentage: 60, resets_at: now + 2.5 * 3600 },     // +20
+    seven_day: { used_percentage: 40, resets_at: now + 4 * 86_400 },     // on track: no pace
+  };
+  const full = renderRateLimits({ rateLimits, nowSeconds: now, detail: 'full' }).replace(/\x1b\[[0-9;]*m/g, '');
+  assert.match(full, /5h [█░]{5} 60% ⚠ pace \+20%/);
+  assert.doesNotMatch(full, /7d [█░]{5} 40% ⚠/, 'a window on track shows no pace');
+  const hottest = renderRateLimits({ rateLimits, nowSeconds: now, detail: 'hottest' }).replace(/\x1b\[[0-9;]*m/g, '');
+  assert.equal(hottest, '5h 60% ⚠ pace +20%');
+  const both = renderRateLimits({ rateLimits: { ...rateLimits, seven_day: { used_percentage: 50, resets_at: now + 4 * 86_400 } },
+    nowSeconds: now, detail: 'numbers' }).replace(/\x1b\[[0-9;]*m/g, '');
+  assert.equal(both, '5h 60% ⚠ pace +20% · 7d 50% ⚠ pace +17%', 'both windows outpacing at once');
 });
 
 test('renderRateLimits shows both windows with a distinct marker + bar each, at any usage level', () => {

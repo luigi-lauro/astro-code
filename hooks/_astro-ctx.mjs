@@ -327,10 +327,11 @@ const rgb = (r, g, b) => `\x1b[1;38;2;${r};${g};${b}m`;        // bold + 24-bit 
 const ANSI = TRUECOLOR ? {
   reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[38;2;128;140;168m',
   red: rgb(255, 71, 108), green: rgb(57, 255, 150), yellow: rgb(255, 209, 71),
-  cyan: rgb(56, 224, 255), magenta: rgb(199, 125, 255),
+  cyan: rgb(56, 224, 255), magenta: rgb(199, 125, 255), orange: rgb(255, 150, 50),
 } : {
   reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[90m',
   red: '\x1b[1;91m', green: '\x1b[1;92m', yellow: '\x1b[1;93m', cyan: '\x1b[1;96m', magenta: '\x1b[1;95m',
+  orange: '\x1b[1;33m',
 };
 const useColor = () => !process.env.NO_COLOR;
 function paint(s, code) { return useColor() && code ? `${code}${s}${ANSI.reset}` : s; }
@@ -647,6 +648,29 @@ function buildWindow(key, data) {
   return { key, label: RATE_LIMIT_WINDOW_LABELS[key], pct: data.used_percentage, resetsAt: data.resets_at };
 }
 
+// The pace of a window: how far the window-average spend overshoots the window.
+// `used` percent spent over the elapsed share of the window projects the percent
+// reached at the reset: 62% with 38% of a week gone projects 162%, i.e. +62.
+// Judged only once PACE_MIN_ELAPSED of the window has passed (the first minutes of
+// a 5h window say nothing), and only when it overshoots; null otherwise.
+const RATE_LIMIT_WINDOW_SECONDS = { five_hour: 5 * 3600, seven_day: 7 * 86_400 };
+const PACE_MIN_ELAPSED = 0.1;
+export function paceOvershoot(key, pct, resetsAt, nowSeconds) {
+  const length = RATE_LIMIT_WINDOW_SECONDS[key];
+  if (!length || !validPct(pct) || !validPct(resetsAt)) return null;
+  const elapsed = Math.min(Math.max(nowSeconds - (resetsAt - length), 0), length);
+  if (elapsed < PACE_MIN_ELAPSED * length) return null;
+  const over = (pct * length) / elapsed - 100;
+  return over > 0 ? over : null;
+}
+
+// Its colour by how far it overshoots: dim up to 5%, then green up to 10%, yellow
+// up to 20%, orange up to 30%, red beyond.
+export function paceColor(over) {
+  return over <= 5 ? ANSI.dim : over <= 10 ? ANSI.green : over <= 20 ? ANSI.yellow
+    : over <= 30 ? ANSI.orange : ANSI.red;
+}
+
 // Quota bars ride narrower than the context-fill bar (which owns the whole
 // line to itself) — 5 cells, matching the CONTEXT.md D2/D4 illustrations
 // ("5h ▓▓▓▓░ 88%"). Up to two of these plus a spend cap share one line with
@@ -667,6 +691,8 @@ function renderWindow(w, bar, nowSeconds) {
   if (isHotWindow(w.pct) && validPct(w.resetsAt)) {
     out += ` ·${formatETA(w.resetsAt, nowSeconds)}`;
   }
+  const over = paceOvershoot(w.key, w.pct, w.resetsAt, nowSeconds);
+  if (over != null) out += ` ${paint(`⚠ pace +${Math.round(over)}%`, paceColor(over))}`;
   return out;
 }
 
