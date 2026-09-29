@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astro.dev/schemas/source-schema.v1.schema.json",
+  "title": "Kit source schema.yaml (v1)",
+  "description": "Phase 102 (SRC-06/07). Describes src/sources/<id>/schema.yaml: a version marker and a map of schema-qualified tables. Closed at every level so a typo surfaces at publish instead of being silently ignored.",
+  "type": "object",
+  "required": ["version", "tables"],
+  "properties": {
+    "version": { "const": 1 },
+    "tables": {
+      "type": "object",
+      "description": "Keyed by schema-qualified table name (dbo.Orders, or bracketed [dbo].[v_Open Orders]).",
+      "patternProperties": {
+        "^(\\[[^\\]]+\\]|[A-Za-z_][A-Za-z0-9_$#@]*)\\.(\\[[^\\]]+\\]|[A-Za-z_][A-Za-z0-9_$#@]*)$": {
+          "$ref": "#/$defs/Table"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Table": {
+      "type": "object",
+      "required": ["purpose"],
+      "properties": {
+        "purpose": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["table", "view"] },
+        "grain": { "type": "string" },
+        "rows": { "oneOf": [{ "type": "string" }, { "type": "integer" }] },
+        "columns": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Column" }
+        },
+        "rules": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "Column": {
+      "type": "object",
+      "required": ["meaning"],
+      "properties": {
+        "meaning": { "type": "string", "minLength": 1 },
+        "type": { "type": "string" },
+        "key": { "type": "boolean" },
+        "joins": {
+          "type": "string",
+          "description": "A schema.table.column reference. The target table need not be declared in this file (SRC-07 warns, never blocks).",
+          "pattern": "^(\\[[^\\]]+\\]|[A-Za-z_][A-Za-z0-9_$#@]*)\\.(\\[[^\\]]+\\]|[A-Za-z_][A-Za-z0-9_$#@]*)\\.(\\[[^\\]]+\\]|[A-Za-z_][A-Za-z0-9_$#@]*)$"
+        },
+        "unit": { "type": "string" },
+        "tz": { "type": "string" },
+        "values": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "sensitive": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

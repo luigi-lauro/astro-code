@@ -296,6 +296,307 @@ def parse_recipe_min(text: str) -> dict:
     return doc
 
 
+# ── Phase 102 (a3): PyYAML-optional schema.yaml reader ─────────────────────
+# Mirrors astro's source-schema.ts (t3) and its JSON Schema
+# (schemas/source-schema.v1.schema.json, copied byte-identical here). No
+# patternProperties support in _schema_engine.py, so this is a hand walker
+# over the parsed dict instead of a schema-engine call (recipe-validator
+# precedent). Never skips silently — anything outside the documented
+# block-style subset is an SRC-06 FAIL, in both the PyYAML and builtin path.
+
+class SourceSchemaParseError(Exception):
+    """schema.yaml uses YAML this restricted reader will not guess at."""
+
+
+_TABLE_PART = r"(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)"
+_TABLE_KEY_RE = re.compile(rf"^{_TABLE_PART}\.{_TABLE_PART}$")
+_JOIN_RE = re.compile(rf"^{_TABLE_PART}\.{_TABLE_PART}\.{_TABLE_PART}$")
+_INT_RE = re.compile(r"^-?[0-9]+$")
+
+_TABLE_FIELDS = {"purpose", "kind", "grain", "rows", "columns", "rules"}
+_COLUMN_FIELDS = {"meaning", "type", "key", "joins", "unit", "tz", "values", "sensitive"}
+
+
+def _yaml_min_scalar(v: str):
+    v = v.strip()
+    if v == "":
+        return None
+    if v.lower() == "true":
+        return True
+    if v.lower() == "false":
+        return False
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        return v[1:-1]
+    if _INT_RE.match(v):
+        return int(v)
+    if v.startswith("[") and v.endswith("]"):
+        inner = v[1:-1].strip()
+        return [] if inner == "" else [_yaml_min_scalar(x) for x in inner.split(",")]
+    return v
+
+
+def _yaml_min_split_key_value(s: str, lineno: int) -> tuple[str, str]:
+    """Split 'key: value' on the first unquoted colon. A quoted key may
+    itself contain '.' (table keys) — find its closing quote first."""
+    if s and s[0] in ('"', "'"):
+        q = s[0]
+        j = 1
+        while j < len(s) and s[j] != q:
+            j += 1
+        if j >= len(s):
+            raise SourceSchemaParseError(f"line {lineno + 1}: unterminated quoted key")
+        remainder = s[j + 1:]
+        if not remainder.startswith(":"):
+            raise SourceSchemaParseError(f"line {lineno + 1}: expected ':' after quoted key")
+        return s[0:j + 1], remainder[1:]
+    if ":" not in s:
+        raise SourceSchemaParseError(f"line {lineno + 1}: expected 'key: value', got {s[:60]!r}")
+    idx = s.find(":")
+    return s[:idx], s[idx + 1:]
+
+
+def _yaml_min_block(lines: list[str], i: int, n: int, base_indent: int) -> tuple[dict, int]:
+    """Parse a block mapping whose keys all sit at `base_indent`."""
+    result: dict = {}
+
+    def indent_of(s: str) -> int:
+        return len(s) - len(s.lstrip(" "))
+
+    while i < n:
+        raw = _strip_comment(lines[i])
+        if not raw.strip():
+            i += 1
+            continue
+        ind = indent_of(raw)
+        if ind < base_indent:
+            break
+        if ind > base_indent:
+            raise SourceSchemaParseError(f"line {i + 1}: unexpected indentation")
+        s = raw.strip()
+        if s.startswith("- "):
+            raise SourceSchemaParseError(f"line {i + 1}: unexpected list item in a mapping")
+        key_raw, rest = _yaml_min_split_key_value(s, i)
+        key = _yaml_min_scalar(key_raw)
+        if not isinstance(key, str):
+            key = key_raw.strip()
+        rest = rest.strip()
+        if rest != "":
+            result[key] = _yaml_min_scalar(rest)
+            i += 1
+            continue
+        # Nested block: find the first non-blank following line to learn
+        # whether it is a mapping or a list, and at what indent.
+        j = i + 1
+        k = j
+        while k < n and not lines[k].strip():
+            k += 1
+        if k >= n or indent_of(lines[k]) <= base_indent:
+            result[key] = None
+            i = j
+            continue
+        nested_indent = indent_of(lines[k])
+        if _strip_comment(lines[k]).strip().startswith("- "):
+            items, i = _yaml_min_list(lines, j, n, nested_indent)
+            result[key] = items
+        else:
+            nested, i = _yaml_min_block(lines, j, n, nested_indent)
+            result[key] = nested
+    return result, i
+
+
+def _yaml_min_list(lines: list[str], i: int, n: int, item_indent: int) -> tuple[list, int]:
+    items: list = []
+
+    def indent_of(s: str) -> int:
+        return len(s) - len(s.lstrip(" "))
+
+    while i < n:
+        raw = _strip_comment(lines[i])
+        if not raw.strip():
+            i += 1
+            continue
+        ind = indent_of(raw)
+        if ind < item_indent:
+            break
+        if ind > item_indent:
+            raise SourceSchemaParseError(f"line {i + 1}: unexpected indentation in list")
+        s = raw.strip()
+        if not s.startswith("- "):
+            break
+        items.append(_yaml_min_scalar(s[2:]))
+        i += 1
+    return items, i
+
+
+def parse_yaml_min_nested(text: str) -> dict:
+    """Restricted block-style YAML reader for schema.yaml: nested mappings,
+    block/flow lists of scalars, quoted/plain scalars, ints, true/false and
+    comments. Anything else raises SourceSchemaParseError — never a silent
+    skip, never a traceback."""
+    lines = text.splitlines()
+    n = len(lines)
+    i = 0
+    while i < n and not lines[i].strip():
+        i += 1
+    if i >= n:
+        return {}
+    if len(lines[i]) - len(lines[i].lstrip(" ")) != 0:
+        raise SourceSchemaParseError(f"line {i + 1}: top-level content must start at column 0")
+    result, i = _yaml_min_block(lines, i, n, 0)
+    while i < n and not lines[i].strip():
+        i += 1
+    if i < n:
+        raise SourceSchemaParseError(f"line {i + 1}: unexpected trailing content")
+    return result
+
+
+def load_source_schema_yaml(text: str) -> tuple[dict, str]:
+    """Return (data, parser_name). PyYAML wins when available (decision 2)."""
+    if _pyyaml is not None:
+        data = _pyyaml.safe_load(text)
+        if not isinstance(data, dict):
+            raise SourceSchemaParseError("schema.yaml did not parse to a mapping")
+        return (data, "PyYAML")
+    return (parse_yaml_min_nested(text), "builtin")
+
+
+def _normalize_table_key(key: str) -> str:
+    norm = []
+    for part in key.split("."):
+        part = part.strip()
+        if part.startswith("[") and part.endswith("]"):
+            part = part[1:-1]
+        norm.append(part.lower())
+    return ".".join(norm)
+
+
+def validate_source_schema(data, source_id: str) -> tuple[list, list]:
+    """Hand walker mirroring source-schema.v1.schema.json (t3). Returns
+    (errors, warnings) as (check, source_id, file, message) tuples — SRC-06
+    for anything structurally wrong, SRC-07 for an undeclared `joins`
+    target (never blocks, C6)."""
+    file = "schema.yaml"
+    errors: list[tuple[str, str, str, str]] = []
+    warnings: list[tuple[str, str, str, str]] = []
+
+    def fail(msg: str) -> None:
+        errors.append(("SRC-06", source_id, file, msg))
+
+    if not isinstance(data, dict):
+        fail("schema.yaml must be a mapping")
+        return errors, warnings
+
+    unknown_top = set(data.keys()) - {"version", "tables"}
+    if unknown_top:
+        fail(f"unknown top-level key(s): {', '.join(sorted(unknown_top))}")
+    if data.get("version") != 1:
+        fail(f"version must be 1, got {data.get('version')!r}")
+
+    tables = data.get("tables")
+    if tables is None:
+        fail("missing 'tables'")
+        return errors, warnings
+    if not isinstance(tables, dict):
+        fail("'tables' must be a mapping")
+        return errors, warnings
+
+    declared = {_normalize_table_key(k) for k in tables.keys()}
+
+    for table_key, table in tables.items():
+        if not isinstance(table_key, str) or not _TABLE_KEY_RE.match(table_key):
+            fail(f"tables.{table_key!r} is not schema-qualified (expected schema.table)")
+            continue
+        if not isinstance(table, dict):
+            fail(f"tables.{table_key}: must be a mapping")
+            continue
+        unknown = set(table.keys()) - _TABLE_FIELDS
+        if unknown:
+            fail(f"tables.{table_key}: unknown key(s): {', '.join(sorted(unknown))}")
+        if not table.get("purpose"):
+            fail(f"tables.{table_key}: missing required 'purpose'")
+        kind = table.get("kind")
+        if kind is not None and kind not in ("table", "view"):
+            fail(f"tables.{table_key}: kind must be 'table' or 'view'")
+        rows = table.get("rows")
+        if rows is not None and (isinstance(rows, bool) or not isinstance(rows, (str, int))):
+            fail(f"tables.{table_key}: rows must be a string or integer")
+        rules = table.get("rules")
+        if rules is not None and (not isinstance(rules, list) or any(not isinstance(r, str) for r in rules)):
+            fail(f"tables.{table_key}: rules must be a list of strings")
+
+        columns = table.get("columns")
+        if columns is None:
+            continue
+        if not isinstance(columns, dict):
+            fail(f"tables.{table_key}: columns must be a mapping")
+            continue
+        for col_name, col in columns.items():
+            if not isinstance(col, dict):
+                fail(f"tables.{table_key}.columns.{col_name}: must be a mapping")
+                continue
+            unknown_c = set(col.keys()) - _COLUMN_FIELDS
+            if unknown_c:
+                fail(f"tables.{table_key}.columns.{col_name}: unknown key(s): {', '.join(sorted(unknown_c))}")
+            if not col.get("meaning"):
+                fail(f"tables.{table_key}.columns.{col_name}: missing required 'meaning'")
+            if "key" in col and not isinstance(col["key"], bool):
+                fail(f"tables.{table_key}.columns.{col_name}: key must be a boolean")
+            if "sensitive" in col and not isinstance(col["sensitive"], bool):
+                fail(f"tables.{table_key}.columns.{col_name}: sensitive must be a boolean")
+            values = col.get("values")
+            if values is not None and (not isinstance(values, dict) or any(not isinstance(v, str) for v in values.values())):
+                fail(f"tables.{table_key}.columns.{col_name}: values must be a string map")
+            joins = col.get("joins")
+            if joins is not None:
+                if not isinstance(joins, str) or not _JOIN_RE.match(joins):
+                    fail(f"tables.{table_key}.columns.{col_name}: joins must be a schema.table.column reference")
+                else:
+                    parts = joins.split(".")
+                    target = _normalize_table_key(f"{parts[0]}.{parts[1]}")
+                    if target not in declared:
+                        warnings.append((
+                            "SRC-07", source_id, file,
+                            f"{table_key}.{col_name}.joins references undeclared table '{parts[0]}.{parts[1]}'",
+                        ))
+
+    return errors, warnings
+
+
+def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
+    """SRC-05..07: per-source schema.yaml presence + validity. Runs against
+    the AUTHORED tree (src/sources/<id>/...), not the zip layout — the zip
+    check (SRC-04, adhoc/SRC-14, query checks) lands in a4/a5."""
+    if not isinstance(manifest, dict):
+        return
+    sources = manifest.get("sources")
+    if not isinstance(sources, list):
+        return
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        source_id = src.get("id")
+        if not isinstance(source_id, str):
+            continue
+        src_dir = root / "src" / "sources" / source_id
+        # Exact-case directory listing — Sources/ or Schema.yaml fails here
+        # exactly as it does on the server (SRC-05/SRC-04 zip convention).
+        names = set(os.listdir(src_dir)) if src_dir.is_dir() else set()
+        if "schema.yaml" not in names:
+            rep.fail("sources", "SRC-05", f"{source_id}: schema.yaml missing")
+            continue
+        text = (src_dir / "schema.yaml").read_text(encoding="utf-8")
+        try:
+            data, _parser = load_source_schema_yaml(text)
+        except Exception as exc:  # SourceSchemaParseError or a PyYAML error
+            rep.fail("sources", "SRC-06", f"{source_id}: schema.yaml is not valid YAML: {exc}")
+            continue
+        errors, warnings = validate_source_schema(data, source_id)
+        for check, sid, file, msg in errors:
+            rep.fail("sources", check, f"{sid}: {file}: {msg}")
+        for check, sid, file, msg in warnings:
+            rep.warn("sources", check, f"{sid}: {file}: {msg}")
+
+
 def load_recipe(path: Path) -> tuple[dict, str]:
     """Return (recipe_dict, parser_name). PyYAML wins when available."""
     text = path.read_text(encoding="utf-8")
@@ -685,6 +986,7 @@ def main() -> int:
     rep = Report()
     manifest = check_manifest(root, rep)
     check_required_docs(root, rep)
+    check_sources(root, manifest, rep)
     check_recipe(root, manifest, rep)
     check_examples(root, rep)
     check_scripts(root, rep)
