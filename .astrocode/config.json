@@ -21,6 +21,7 @@
     "integrator": "low"
   },
   "gitflow": {
-    "enabled": true
+    "enabled": true,
+    "pr": "gh"
   }
 }
