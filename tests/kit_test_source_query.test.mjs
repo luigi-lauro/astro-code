@@ -220,3 +220,31 @@ print("OK")
   const res = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
   assert.equal(res.status, 0, res.stdout + res.stderr);
 });
+
+// r4 (C5): the one text semantics, mirrored from astro's source-text.ts —
+// whitespace is exactly [ \t\n\r\f\v] + U+FEFF, lines split on "\n" only with
+// one trailing "\r" dropped, lengths in UTF-16 code units. Cross-language
+// agreement on whole kits is pinned by the "C5 r4" corpus cases.
+test('text semantics primitives match source-text.ts', { skip: !hasPython }, () => {
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(TOOLS_DIR)})
+import kit_test as k
+out = {
+  "blank_ws": k._is_blank(" \\t\\n\\r\\f\\v\\ufeff"),
+  "content": [k._is_blank(c) for c in ["\\u00a0", "\\u0085", "\\u2028", "\\u2029", "\\u3000", "\\x1c", "\\x1d", "\\x1e", "\\x1f"]],
+  "trim": k._trim_ws("\\ufeff a\\u00a0\\t"),
+  "lines": k._split_lines("a\\r\\nb\\u2028c\\rd\\n\\x85e\\r\\r\\n"),
+  "utf16": k._utf16_len("\\U0001F600\\U0001F600"),
+}
+print(json.dumps(out))
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.blank_ws, true);
+  assert.deepEqual(out.content, Array(9).fill(false));
+  assert.equal(out.trim, 'a ');
+  assert.deepEqual(out.lines, ['a', 'b c\rd', '\x85e\r', '']);
+  assert.equal(out.utf16, 4);
+});

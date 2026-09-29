@@ -191,6 +191,26 @@ Case-insensitive (`NVARCHAR(MAX)` = `nvarchar(max)`); a type is one token, no wh
 | `datetime2[(0..7)]` / `time[(0..7)]` / `datetimeoffset[(0..7)]` | fractional-seconds precision |
 | `uniqueidentifier` | none |
 
+### Text rules (how every sources check reads text)
+
+The offline tools and the server read `SOURCE.md`, query files and `contract_version`
+with one explicit set of rules, so they always reach the same verdict:
+
+- Files are UTF-8; one leading BOM is dropped and invalid bytes become U+FFFD.
+- **Whitespace is exactly** space, tab, `\n`, `\r`, form feed, vertical tab and U+FEFF (a
+  stray BOM). Nothing else counts: a `SOURCE.md` holding only a non-breaking space,
+  U+0085, U+2028/U+2029 or `\x1c`–`\x1f` is **not** empty, and a non-breaking space does
+  not separate the words of a `@param`/`@returns` line.
+- Lines split on `\n` only; a trailing `\r` is dropped, so CRLF files work. U+2028,
+  U+2029, U+0085 and a lone `\r` inside a line are ordinary characters (e.g. inside a
+  `@description`).
+- Digits are ASCII `0-9` only (in `default=` literals, `@max_rows`, type arguments and
+  `contract_version`, which also allows no leading zeros such as `^01.1.0`). SQL keywords
+  in the body guard match ASCII letters only, on ASCII word boundaries.
+- A string `default=` is measured in UTF-16 code units, as SQL Server counts
+  `nvarchar(n)`: an emoji takes two.
+- `schema.json` strings are never trimmed: `"purpose": " "` is non-empty.
+
 ### Check IDs
 
 Every rejection names the check ID plus the source id, file, param or column involved.

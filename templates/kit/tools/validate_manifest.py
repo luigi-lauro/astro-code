@@ -304,19 +304,28 @@ def check_pip_verify(manifest: dict) -> list:
 
 _SOURCES_MIN_CONTRACT = (1, 1, 0)
 # Exactly one comparator (^X.Y.Z, ~X.Y.Z, >=X.Y.Z, =X.Y.Z or bare X.Y.Z) —
-# the same five forms source-contract.ts accepts. A compound range, a bare
-# absent value, or anything else fails.
-_SINGLE_COMPARATOR_RE = re.compile(r"^(\^|~|>=|=)?(\d+)\.(\d+)\.(\d+)$")
+# the same grammar source-contract.ts accepts. r4 (C5) text semantics, shared
+# with kit_test.py and astro's source-text.ts: trim only [ \t\n\r\f\v] and
+# U+FEFF (never str.strip()), ASCII digits with no leading zeros (never \d,
+# re.ASCII, \Z never $), compared as integers. A compound range, an absent
+# value, or anything else fails.
+_SOURCES_WS_CHARS = " \t\n\r\f\v\ufeff"
+_NUM = r"(0|[1-9][0-9]*)"
+_SINGLE_COMPARATOR_RE = re.compile(rf"^(\^|~|>=|=)?{_NUM}\.{_NUM}\.{_NUM}\Z", re.ASCII)
 
 
 def _sources_contract_satisfied(range_str) -> bool:
     if not isinstance(range_str, str):
         return False
-    m = _SINGLE_COMPARATOR_RE.match(range_str.strip())
+    m = _SINGLE_COMPARATOR_RE.match(range_str.strip(_SOURCES_WS_CHARS))
     if not m:
         return False
-    version = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
-    return version >= _SOURCES_MIN_CONTRACT
+    # No leading zeros, so (length, digits) orders like the integer without
+    # int() — which refuses strings over 4300 digits (JS uses BigInt).
+    def key(n: str) -> tuple[int, str]:
+        return (len(n), n)
+    version = tuple(key(m.group(i)) for i in (2, 3, 4))
+    return version >= tuple(key(str(n)) for n in _SOURCES_MIN_CONTRACT)
 
 
 def _prefix_source_schema_errors(errors: list) -> list:

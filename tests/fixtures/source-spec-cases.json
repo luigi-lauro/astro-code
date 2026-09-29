@@ -1858,6 +1858,385 @@
         "ok": false,
         "check": "SRC-05"
       }
+    },
+    {
+      "name": "source-md-two-boms",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\ufeff\ufeff"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-two-boms-whitespace",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\ufeff \ufeff\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-space-bom-space",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": " \ufeff "
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-tab-bom-newline",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\t\ufeff\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-vt-ff-crlf",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u000b\f\r\n "
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-nel-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u0085"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-info-separators",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u001c\u001d\u001e\u001f"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-nbsp-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u00a0"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-line-paragraph-separators",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u2028\u2029"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-ideographic-space",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u3000"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-line-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open\u2028orders\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-paragraph-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders\u2029for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-only-line-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description \u2028\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-nbsp-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description \u00a0\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-lone-cr",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open\rorders\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-bom-tab-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description \ufeff\t\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-crlf-headers",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\r\n-- @description Open orders for a customer\r\n-- @param CustomerId int required\r\n-- @returns OrderId int, Total decimal(18,2)\r\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\r\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-param-name-nel",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param Cust\u0085omerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "query-param-nbsp-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId\u00a0int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "query-returns-nbsp-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId\u00a0int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "query-body-leading-nel",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n\u0085SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "query-body-accented-prefix-drop",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId AS \u00e9DROP, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "query-body-kelvin-sign-not-kill",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId AS \u212aILL, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-file-named-dot-sql",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "param-default-date-arabic-indic-digits",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Since date optional default=\u0662\u0660\u0662\u0666-\u0660\u0661-\u0660\u0661\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND OrderDate >= @Since\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-nvarchar-astral-too-long",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Tag nvarchar(3) optional default=\ud83d\ude00\ud83d\ude00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Tag = @Tag\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-nvarchar-astral-fits",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Tag nvarchar(4) optional default=\ud83d\ude00\ud83d\ude00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Tag = @Tag\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-decimal-zero-integer-part",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Rate decimal(2,2) optional default=0.5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Rate = @Rate\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "contract-arabic-indic-digits",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "^\u0661.\u0661.\u0660"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-nel-padded",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "\u0085^1.1.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-nbsp-padded",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "\u00a0^1.1.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-newline-padded",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "^1.1.0\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "contract-leading-zero",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "^01.1.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "schema-json-purpose-whitespace-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \" \", \"columns\": {\"OrderId\": {\"meaning\": \"\\t\"}}}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "max-rows-5000-digits",
+      "criteria": "C4/C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-bigint-5000-digits",
+      "criteria": "C4/C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Big bigint optional default=100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Big = @Big\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
     }
   ]
 }

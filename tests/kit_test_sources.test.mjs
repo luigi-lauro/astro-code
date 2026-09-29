@@ -137,25 +137,45 @@ test('the untouched demo kit (no sources) still passes both tools', { skip: !has
 // r3 (C4): a source file that is a directory, unreadable, or a symlink loop is
 // reported as a check failure, never a traceback. A directory named like the
 // file is "missing", exactly as the server sees a zip with only schema.json/x.
-test('unreadable or non-file SOURCE.md / schema.json are reported, not crashed on', { skip: !hasPython }, () => {
+test('unreadable or non-file source dirs / files are reported, not crashed on', { skip: !hasPython }, () => {
   const variants = [
     ['schema.json is a directory', (d) => { rmSync(join(d, 'src/sources/erp/schema.json')); mkdirSync(join(d, 'src/sources/erp/schema.json/x'), { recursive: true }); }, 'SRC-05'],
     ['SOURCE.md is a directory', (d) => { rmSync(join(d, 'src/sources/erp/SOURCE.md')); mkdirSync(join(d, 'src/sources/erp/SOURCE.md')); }, 'SRC-04'],
     ['schema.json is a symlink loop', (d) => { rmSync(join(d, 'src/sources/erp/schema.json')); symlinkSync('schema.json', join(d, 'src/sources/erp/schema.json')); }, 'SRC-05'],
   ];
+  // [label, mutate, expected check IDs, paths to restore to 0o755 before cleanup]
+  const chmodVariants = [
+    ['schema.json is unreadable', 'src/sources/erp/schema.json', 0o000, ['SRC-05']],
+    // r4 (C4): the directory listings themselves are guarded, not only reads.
+    ['src/sources/<id>/ is unreadable (000)', 'src/sources/erp', 0o000, ['SRC-04', 'SRC-05']],
+    ['src/sources/<id>/ is list-only, not searchable (444)', 'src/sources/erp', 0o444, ['SRC-04', 'SRC-05']],
+    ['src/sources/ is unreadable (000)', 'src/sources', 0o000, ['SRC-04', 'SRC-05']],
+    ['queries/ is unreadable (000)', 'src/sources/erp/queries', 0o000, ['SRC-08']],
+    ['queries/ is list-only, not searchable (444)', 'src/sources/erp/queries', 0o444, ['SRC-08']],
+    ['a query file is unreadable (000)', 'src/sources/erp/queries/open_orders.sql', 0o000, ['SRC-08']],
+  ];
+  const variantsWithChecks = variants.map(([label, mutate, check]) => [label, mutate, [check], null]);
   if (process.getuid && process.getuid() !== 0) {
-    variants.push(['schema.json is unreadable', (d) => chmodSync(join(d, 'src/sources/erp/schema.json'), 0o000), 'SRC-05']);
+    for (const [label, rel, mode, checks] of chmodVariants) {
+      variantsWithChecks.push([label, (d) => chmodSync(join(d, rel), mode), checks, rel]);
+    }
   }
   const valid = CORPUS.cases.find((c) => c.expect.ok && !c.files) ?? { name: 'base', expect: { ok: true } };
-  for (const [label, mutate, check] of variants) {
+  for (const [label, mutate, checks, restore] of variantsWithChecks) {
     const dir = scratchKitForCase(valid);
     mutate(dir);
     const kt = runKitTest(dir);
+    if (restore) chmodSync(join(dir, restore), 0o755);
+    rmSync(dir, { recursive: true, force: true });
     assert.ok(!hasTraceback(kt.out), `${label}: kit_test.py traceback\n${kt.out}`);
     assert.notEqual(kt.status, 0, `${label}: expected a failure\n${kt.out}`);
-    assert.ok(kt.out.includes(check), `${label}: expected ${check}\n${kt.out}`);
-    if (label === 'schema.json is unreadable') chmodSync(join(dir, 'src/sources/erp/schema.json'), 0o644);
-    rmSync(dir, { recursive: true, force: true });
+    const failed = (kt.report?.results ?? []).filter((r) => r.group === 'sources' && r.status === 'FAIL');
+    for (const check of checks) {
+      assert.ok(failed.some((r) => r.id === check), `${label}: expected a FAIL ${check}\n${kt.out}`);
+    }
+    if (restore) {
+      assert.ok(failed.some((r) => /cannot be read/.test(r.message)), `${label}: expected the OS error to be reported\n${kt.out}`);
+    }
   }
 });
 

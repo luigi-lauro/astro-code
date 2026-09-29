@@ -59,7 +59,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import errno
 import os
+import stat
 
 try:  # authoritative when present; never required
     import yaml as _pyyaml
@@ -298,6 +300,54 @@ def parse_recipe_min(text: str) -> dict:
     return doc
 
 
+# ── Phase 102 r4 (C5): the ONE text semantics of every sources check ───────
+# Mirrors astro's source-text.ts exactly, so offline and server can never
+# disagree through language defaults:
+#   - Decoding: UTF-8, invalid bytes -> U+FFFD, one leading BOM dropped.
+#   - Whitespace: EXACTLY [ \t\n\r\f\v] plus U+FEFF (a stray BOM counts as
+#     whitespace). NBSP, U+2028/U+2029, U+0085, U+3000 and \x1c-\x1f are
+#     ordinary characters. Never str.strip() / isspace() / splitlines() / \s.
+#   - Lines: split on "\n" only; one trailing "\r" dropped from each line.
+#   - Regexes: re.ASCII (so \b and IGNORECASE are ASCII-only, as in JS without
+#     the `u` flag), [0-9] never \d, [^\n] never `.`, and \Z never `$` (a
+#     Python `$` also matches before a trailing newline).
+#   - Lengths (typed string defaults): UTF-16 code units, as JS `.length` and
+#     SQL Server's nvarchar(n) count them.
+
+_WS = "[ \t\n\r\f\v\ufeff]"
+_NON_WS = "[^ \t\n\r\f\v\ufeff]"
+_WS_CHARS = " \t\n\r\f\v\ufeff"
+_HAS_WS_RE = re.compile(_WS)
+
+
+def _trim_ws(text: str) -> str:
+    return text.strip(_WS_CHARS)
+
+
+def _is_blank(text: str) -> bool:
+    return _trim_ws(text) == ""
+
+
+def _split_lines(text: str) -> list[str]:
+    return [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
+
+
+def _utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _ascii_int(text: str) -> int:
+    """int() of an already-validated ASCII "-?[0-9]+" string of ANY length.
+    int() refuses more than 4300 digits (a ValueError traceback); JS reads the
+    same text with Number/BigInt. Beyond 4000 significant digits the value is
+    clamped to +/-10**4000, which exceeds every bound and cap it is compared
+    against, so the verdict is the server's."""
+    neg = text.startswith("-")
+    digits = (text[1:] if neg else text).lstrip("0") or "0"
+    value = 10 ** 4000 if len(digits) > 4000 else int(digits)
+    return -value if neg else value
+
+
 # ── Phase 102: schema.json reader + walker (SRC-06/07) ─────────────────────
 # Mirrors astro's source-schema.ts and its JSON Schema
 # (schemas/source-schema.v1.schema.json, copied byte-identical here). r2
@@ -316,8 +366,8 @@ class SourceSchemaParseError(Exception):
 
 
 _TABLE_PART = r"(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)"
-_TABLE_KEY_RE = re.compile(rf"{_TABLE_PART}\.{_TABLE_PART}")
-_JOIN_RE = re.compile(rf"{_TABLE_PART}\.{_TABLE_PART}\.{_TABLE_PART}")
+_TABLE_KEY_RE = re.compile(rf"{_TABLE_PART}\.{_TABLE_PART}", re.ASCII)
+_JOIN_RE = re.compile(rf"{_TABLE_PART}\.{_TABLE_PART}\.{_TABLE_PART}", re.ASCII)
 
 _TABLE_FIELDS = {"purpose", "kind", "grain", "rows", "columns", "rules"}
 _COLUMN_FIELDS = {"meaning", "type", "key", "joins", "unit", "tz", "values", "sensitive"}
@@ -368,13 +418,16 @@ def load_source_schema_json(raw: bytes):
 
 
 def _normalize_table_key(key: str) -> str:
+    """Mirrors source-schema.ts normalizeTableKey: per "."-part, a leading "["
+    and a trailing "]" are each dropped independently; no trimming."""
     norm = []
     for part in key.split("."):
-        part = part.strip()
-        if part.startswith("[") and part.endswith("]"):
-            part = part[1:-1]
-        norm.append(part.lower())
-    return ".".join(norm)
+        if part.startswith("["):
+            part = part[1:]
+        if part.endswith("]"):
+            part = part[:-1]
+        norm.append(part)
+    return ".".join(norm).lower()
 
 
 def _is_str(v) -> bool:
@@ -528,7 +581,7 @@ def _load_sqlserver_types() -> dict | None:
     return _SQLSERVER_TYPES_CACHE
 
 
-_SQLTYPE_TOKEN_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*)(?:\(([^()]*)\))?$")
+_SQLTYPE_TOKEN_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*)(?:\(([^()]*)\))?\Z", re.ASCII)
 
 
 def parse_sql_type(token) -> tuple[bool, dict | str]:
@@ -536,9 +589,9 @@ def parse_sql_type(token) -> tuple[bool, dict | str]:
     types = _load_sqlserver_types()
     if types is None:
         return False, _SQLSERVER_TYPES_LOAD_ERROR or "sqlserver-types.v1.json unavailable"
-    if not isinstance(token, str) or token != token.strip() or token == "":
+    if not isinstance(token, str) or token != _trim_ws(token) or token == "":
         return False, f"empty or malformed sqltype: {token!r}"
-    if re.search(r"\s", token):
+    if _HAS_WS_RE.search(token):
         return False, f"sqltype must be a single token with no whitespace: '{token}'"
     m = _SQLTYPE_TOKEN_RE.match(token)
     if not m:
@@ -556,9 +609,9 @@ def parse_sql_type(token) -> tuple[bool, dict | str]:
     if args_kind == "length":
         if raw_args is None:
             return False, f"{name} requires (n): '{token}'"
-        if not re.match(r"^[1-9][0-9]*$", raw_args):
+        if not re.match(r"^[1-9][0-9]*\Z", raw_args, re.ASCII):
             return False, f"{name} length must be a positive integer: '{token}'"
-        length = int(raw_args)
+        length = _ascii_int(raw_args)
         max_len = bounds.get("maxLength")
         if max_len and length > max_len:
             return False, f"{name}({length}) exceeds max length {max_len}"
@@ -568,9 +621,9 @@ def parse_sql_type(token) -> tuple[bool, dict | str]:
             return False, f"{name} requires (n) or (max): '{token}'"
         if raw_args.lower() == "max":
             return True, {"name": name, "literal": literal, "args": {"kind": "max"}}
-        if not re.match(r"^[1-9][0-9]*$", raw_args):
+        if not re.match(r"^[1-9][0-9]*\Z", raw_args, re.ASCII):
             return False, f"{name} length must be a positive integer or 'max': '{token}'"
-        length = int(raw_args)
+        length = _ascii_int(raw_args)
         max_len = bounds.get("maxLength")
         if max_len and length > max_len:
             return False, f"{name}({length}) exceeds max length {max_len}"
@@ -578,11 +631,11 @@ def parse_sql_type(token) -> tuple[bool, dict | str]:
     if args_kind == "precision_scale":
         if raw_args is None:
             return True, {"name": name, "literal": literal, "args": {"kind": "precision_scale", "precision": 18, "scale": 0}}
-        pm = re.match(r"^([0-9]+)(?:,([0-9]+))?$", raw_args)
+        pm = re.match(r"^([0-9]+)(?:,([0-9]+))?\Z", raw_args, re.ASCII)
         if not pm:
             return False, f"{name} args must be (p) or (p,s): '{token}'"
-        precision = int(pm.group(1))
-        scale = int(pm.group(2)) if pm.group(2) is not None else 0
+        precision = _ascii_int(pm.group(1))
+        scale = _ascii_int(pm.group(2)) if pm.group(2) is not None else 0
         max_p = bounds.get("maxPrecision", 38)
         if precision < 1 or precision > max_p:
             return False, f"{name} precision must be 1..{max_p}: '{token}'"
@@ -592,16 +645,17 @@ def parse_sql_type(token) -> tuple[bool, dict | str]:
     if args_kind == "fraction":
         if raw_args is None:
             return True, {"name": name, "literal": literal, "args": {"kind": "fraction", "fraction": 7}}
-        if not re.match(r"^[0-7]$", raw_args):
+        if not re.match(r"^[0-7]\Z", raw_args, re.ASCII):
             return False, f"{name} fraction must be 0..7: '{token}'"
         return True, {"name": name, "literal": literal, "args": {"kind": "fraction", "fraction": int(raw_args)}}
     return False, f"unsupported args kind {args_kind!r} for {name}"  # pragma: no cover — data drift guard
 
 
-_DEF_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
-_DEF_DATETIME_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,7}))?)?)?$")
-_DEF_TIME_RE = re.compile(r"^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,7}))?)?$")
-_DEF_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_DEF_DATE_RE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})\Z", re.ASCII)
+_DEF_DATETIME_RE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,7}))?)?)?\Z", re.ASCII)
+_DEF_TIME_RE = re.compile(r"^([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,7}))?)?\Z", re.ASCII)
+_DEF_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z", re.ASCII)
+_DEF_OFFSET_RE = re.compile(r"^([^\n]*?)(Z|[+-][0-9]{2}:[0-9]{2})\Z", re.ASCII)
 
 
 def _is_real_date(y: int, mo: int, d: int) -> bool:
@@ -630,9 +684,9 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
     types = _load_sqlserver_types() or {}
 
     if kind == "int":
-        if not re.match(r"^-?[0-9]+$", literal):
+        if not re.match(r"^-?[0-9]+\Z", literal, re.ASCII):
             return False, f"'{literal}' is not a valid int literal"
-        n = int(literal)
+        n = _ascii_int(literal)
         bounds = types.get(name.lower(), {}).get("bounds", {})
         # int(), never float: bigint's bounds are decimal strings in the
         # shared JSON (a JSON number cannot carry 2^63 exactly into JS).
@@ -646,7 +700,7 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
             return False, f"'{literal}' is not a valid bit literal"
         return True, literal
     if kind == "decimal":
-        if not re.match(r"^-?[0-9]+(\.[0-9]+)?$", literal):
+        if not re.match(r"^-?[0-9]+(\.[0-9]+)?\Z", literal, re.ASCII):
             return False, f"'{literal}' is not a valid decimal literal"
         if args["kind"] == "precision_scale":
             body_ = literal.lstrip("-")
@@ -658,11 +712,11 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
                 return False, f"'{literal}' has more integer digits than precision allows"
         return True, literal
     if kind == "float":
-        if not re.match(r"^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$", literal):
+        if not re.match(r"^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?\Z", literal, re.ASCII):
             return False, f"'{literal}' is not a valid float literal"
         return True, literal
     if kind == "string":
-        if args["kind"] == "length" and len(literal) > args["length"]:
+        if args["kind"] == "length" and _utf16_len(literal) > args["length"]:
             return False, f"'{literal}' is longer than the declared length {args['length']}"
         return True, literal
     if kind == "date":
@@ -680,7 +734,7 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
             return False, f"'{literal}' has an invalid time part"
         return True, literal
     if kind == "datetimeoffset":
-        off = re.match(r"^(.*?)(Z|[+-]\d{2}:\d{2})$", literal)
+        off = _DEF_OFFSET_RE.match(literal)
         if not off:
             return False, f"'{literal}' is not a valid datetimeoffset literal"
         m = _DEF_DATETIME_RE.match(off.group(1))
@@ -711,9 +765,11 @@ _FORBIDDEN_KEYWORDS = [
     "OPENROWSET", "OPENQUERY", "OPENDATASOURCE", "BULK", "DBCC", "BACKUP",
     "RESTORE", "SHUTDOWN", "KILL", "USE", "WAITFOR", "RECONFIGURE",
 ]
-_FORBIDDEN_RE = re.compile(r"\b(" + "|".join(_FORBIDDEN_KEYWORDS) + r")\b", re.IGNORECASE)
-_FIRST_KEYWORD_RE = re.compile(r"^\s*([A-Za-z]+)\b")
-_BODY_PARAM_RE = re.compile(r"(?<!@)@([A-Za-z_][A-Za-z0-9_]*)")
+# re.ASCII: \b and IGNORECASE are ASCII-only, as in sql-guard.ts (no `u` flag)
+# — `éDROP` holds DROP, and the Kelvin sign in `\u212aILL` is not K.
+_FORBIDDEN_RE = re.compile(r"\b(" + "|".join(_FORBIDDEN_KEYWORDS) + r")\b", re.IGNORECASE | re.ASCII)
+_FIRST_KEYWORD_RE = re.compile(rf"^{_WS}*([A-Za-z]+)\b", re.ASCII)
+_BODY_PARAM_RE = re.compile(r"(?<!@)@([A-Za-z_][A-Za-z0-9_]*)", re.ASCII)
 
 
 def strip_sql(sql: str) -> str:
@@ -780,9 +836,9 @@ def strip_sql(sql: str) -> str:
 
 
 def check_single_select(body: str) -> tuple[bool, str | None]:
-    trimmed = strip_sql(body).strip()
+    trimmed = _trim_ws(strip_sql(body))
     if trimmed.endswith(";"):
-        trimmed = trimmed[:-1].strip()
+        trimmed = _trim_ws(trimmed[:-1])
     if len(trimmed) == 0:
         return False, "empty query body"
     if ";" in trimmed:
@@ -812,10 +868,15 @@ def scan_body_params(body: str) -> list[str]:
 
 # ── Named-query header parser (mirrors source-query.ts, t6) ────────────────
 
-_QNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-_QPARAM_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_QTAG_LINE_RE = re.compile(r"^--\s*@([A-Za-z_][A-Za-z0-9_]*)(?:\s+(.*))?$")
-_QMAX_ROWS_RE = re.compile(r"^[1-9][0-9]*$")
+_QNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}\Z", re.ASCII)
+_QPARAM_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z", re.ASCII)
+# [^\n]* not .*: U+2028/U+2029/\r inside a line are ordinary text (source-text.ts).
+_QTAG_LINE_RE = re.compile(rf"^--{_WS}*@([A-Za-z_][A-Za-z0-9_]*)(?:{_WS}+([^\n]*))?\Z", re.ASCII)
+_QPARAM_LINE_RE = re.compile(rf"^([A-Za-z_][A-Za-z0-9_]*){_WS}+({_NON_WS}+){_WS}+(required|optional)\b([^\n]*)\Z", re.ASCII)
+_QRETURNS_COL_RE = re.compile(rf"^({_NON_WS}+){_WS}+({_NON_WS}+)\Z", re.ASCII)
+_QDEFAULT_TRAILER_RE = re.compile(r"^default=([^\n]*)\Z", re.ASCII)
+_QMAX_ROWS_RE = re.compile(r"^[1-9][0-9]*\Z", re.ASCII)
+_SQL_SUFFIX_RE = re.compile(r"\.sql\Z", re.ASCII | re.IGNORECASE)
 
 
 def _split_outside_parens(text: str) -> list[str]:
@@ -837,10 +898,10 @@ def _split_outside_parens(text: str) -> list[str]:
 
 
 def _parse_default_trailer(trailing: str) -> tuple[bool, str | None]:
-    t = trailing.strip()
+    t = _trim_ws(trailing)
     if t == "":
         return True, None
-    m = re.match(r"^default=(.*)$", t)
+    m = _QDEFAULT_TRAILER_RE.match(t)
     if not m:
         return False, None
     rest = m.group(1)
@@ -860,7 +921,7 @@ def _parse_default_trailer(trailing: str) -> tuple[bool, str | None]:
         if i != len(rest):
             return False, None
         return True, "".join(chars)
-    if re.search(r"\s", rest) or rest == "":
+    if _HAS_WS_RE.search(rest) or rest == "":
         return False, None
     return True, rest
 
@@ -873,12 +934,12 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
     def err(check: str, message: str) -> None:
         errors.append((check, source_id, file_name, message))
 
-    stem = re.sub(r"\.sql$", "", file_name, flags=re.IGNORECASE)
-    lines = re.split(r"\r\n|\n", text)
+    stem = _SQL_SUFFIX_RE.sub("", file_name)
+    lines = _split_lines(text)
 
     i = 0
     header_lines: list[str] = []
-    while i < len(lines) and (lines[i].strip() == "" or lines[i].startswith("--")):
+    while i < len(lines) and (_is_blank(lines[i]) or lines[i].startswith("--")):
         header_lines.append(lines[i])
         i += 1
     body = "\n".join(lines[i:])
@@ -899,7 +960,7 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
         if not m:
             continue
         tag, raw_rest = m.group(1), m.group(2)
-        rest = (raw_rest or "").strip()
+        rest = _trim_ws(raw_rest or "")
 
         if tag == "name":
             name_count += 1
@@ -908,9 +969,9 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
             description_count += 1
             description_value = rest
         elif tag == "param":
-            pm = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s+(\S+)\s+(required|optional)\b(.*)$", rest)
+            pm = _QPARAM_LINE_RE.match(rest)
             if not pm:
-                err("SRC-10", f"malformed @param line: '{line.strip()}'")
+                err("SRC-10", f"malformed @param line: '{_trim_ws(line)}'")
                 continue
             pname, sqltype, qualifier, trailer = pm.group(1), pm.group(2), pm.group(3), pm.group(4)
             if not _QPARAM_NAME_PATTERN.match(pname):
@@ -929,7 +990,7 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
 
             trailer_ok, trailer_literal = _parse_default_trailer(trailer)
             if not trailer_ok:
-                err("SRC-10", f"@param {pname}: malformed trailing text '{trailer.strip()}'")
+                err("SRC-10", f"@param {pname}: malformed trailing text '{_trim_ws(trailer)}'")
                 continue
             has_default = trailer_literal is not None
             if has_default and qualifier == "required":
@@ -953,7 +1014,7 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
             if not _QMAX_ROWS_RE.match(rest):
                 err("SRC-12", f"@max_rows must be a positive integer: '{rest}'")
             else:
-                max_rows_value = int(rest)
+                max_rows_value = _ascii_int(rest)
         else:
             err("SRC-08", f"unknown tag '@{tag}'")
 
@@ -981,16 +1042,16 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
         err("SRC-11", "missing @returns")
     elif returns_count > 1:
         err("SRC-11", "duplicate @returns")
-    elif not returns_raw or returns_raw.strip() == "":
+    elif not returns_raw or _is_blank(returns_raw):
         err("SRC-11", "@returns must declare at least one column")
     else:
         seen_cols: set[str] = set()
         for piece in _split_outside_parens(returns_raw):
-            p = piece.strip()
+            p = _trim_ws(piece)
             if p == "":
                 err("SRC-11", "@returns has an empty column entry")
                 continue
-            cm = re.match(r"^(\S+)\s+(\S+)$", p)
+            cm = _QRETURNS_COL_RE.match(p)
             if not cm:
                 err("SRC-11", f"@returns column '{p}' must be 'Col sqltype'")
                 continue
@@ -1039,19 +1100,41 @@ def _read_text_like_server(path: Path) -> str:
     return path.read_bytes().decode("utf-8-sig", errors="replace")
 
 
-def _is_regular_file(path: Path) -> bool:
-    """True for a regular file, following symlinks; False for directories,
-    broken links and symlink loops (is_file() raises on a loop)."""
+_MISSING_ERRNOS = {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+
+
+def _file_kind(path: Path) -> tuple[str, OSError | None]:
+    """("file", None) for a regular file (following symlinks); ("missing",
+    None) for anything else the server would not see as that file — absent,
+    a directory, a broken symlink, a symlink loop; ("error", exc) when the OS
+    refuses to say (e.g. EACCES on the parent). Never raises."""
     try:
-        return path.is_file()
-    except OSError:
-        return False
+        st = os.stat(path)
+    except OSError as exc:
+        if exc.errno in _MISSING_ERRNOS:
+            return "missing", None
+        return "error", exc
+    return ("file", None) if stat.S_ISREG(st.st_mode) else ("missing", None)
+
+
+def _list_dir(path: Path) -> tuple[list[str], OSError | None]:
+    """(names, None), ([], None) when the directory is absent or not a
+    directory, or ([], exc) when it exists but cannot be listed. Never raises."""
+    try:
+        return os.listdir(path), None
+    except OSError as exc:
+        if exc.errno in _MISSING_ERRNOS:
+            return [], None
+        return [], exc
 
 
 def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
     """SRC-04..14: per-source SOURCE.md/schema.json presence + validity,
     named query header/body checks, and the adhoc:false rule. Runs against
-    the AUTHORED tree (src/sources/<id>/...), not the zip layout."""
+    the AUTHORED tree (src/sources/<id>/...), not the zip layout.
+
+    Every filesystem call is guarded (C4): an unreadable directory or file is
+    reported as the check it blocks, with the OS error — never a traceback."""
     if not isinstance(manifest, dict):
         return
     sources = manifest.get("sources")
@@ -1067,17 +1150,23 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
         src_dir = root / "src" / "sources" / source_id
         # Exact-case directory listing — Sources/ or Schema.json fails here
         # exactly as it does on the server (SRC-05/SRC-04 zip convention).
-        names = set(os.listdir(src_dir)) if src_dir.is_dir() else set()
+        listing, list_err = _list_dir(src_dir)
+        if list_err is not None:
+            rep.fail("sources", "SRC-04", f"{source_id}: src/sources/{source_id}/ cannot be read, so SOURCE.md cannot be checked: {list_err}")
+            rep.fail("sources", "SRC-05", f"{source_id}: src/sources/{source_id}/ cannot be read, so schema.json cannot be checked: {list_err}")
+            continue
+        names = set(listing)
 
-        # SOURCE.md and queries are read as utf-8-sig: a leading BOM is
-        # dropped exactly as astroport's TextDecoder (fflate strFromU8) drops
-        # it server-side. schema.json has its own strict reader below.
-        # A name that is not a regular file (a directory, a broken symlink) is
-        # "missing", exactly as the server sees a zip that only holds
-        # SOURCE.md/x or schema.json/x. A file that cannot be read fails the
-        # same check with the OS error instead of a traceback.
+        # SOURCE.md and queries are decoded like the server (see
+        # _read_text_like_server). A name that is not a regular file (a
+        # directory, a broken symlink) is "missing", exactly as the server
+        # sees a zip that only holds SOURCE.md/x or schema.json/x. A file that
+        # cannot be stat'ed or read fails the same check with the OS error.
         # ── SRC-04: SOURCE.md present and non-empty ──
-        if "SOURCE.md" not in names or not _is_regular_file(src_dir / "SOURCE.md"):
+        kind, kind_err = _file_kind(src_dir / "SOURCE.md") if "SOURCE.md" in names else ("missing", None)
+        if kind == "error":
+            rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md cannot be read: {kind_err}")
+        elif kind == "missing":
             rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md missing")
         else:
             try:
@@ -1085,14 +1174,19 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
             except OSError as exc:
                 rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md cannot be read: {exc}")
             else:
-                if not source_md.strip():
+                # "Empty" = only [ \t\n\r\f\v] and U+FEFF (text semantics above).
+                if _is_blank(source_md):
                     rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md is empty")
 
         # ── SRC-05..07: schema.json (ADR-016) ──
         # Only the exact name counts: a schema.yaml shipped instead is
         # "schema.json missing". Raw bytes go to the strict JSON reader,
         # which strips exactly one leading BOM itself.
-        if "schema.json" not in names or not _is_regular_file(src_dir / "schema.json"):
+        kind, kind_err = _file_kind(src_dir / "schema.json") if "schema.json" in names else ("missing", None)
+        if kind == "error":
+            rep.fail("sources", "SRC-05", f"{source_id}: schema.json cannot be read: {kind_err}")
+            continue
+        if kind == "missing":
             rep.fail("sources", "SRC-05", f"{source_id}: schema.json missing")
             continue
         try:
@@ -1115,22 +1209,33 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
             rep.warn("sources", check, f"{sid}: {file}: {msg}")
 
         # ── SRC-08..13: named queries (direct *.sql children of queries/) ──
+        # Membership mirrors source-files.ts: ASCII-case-insensitive ".sql"
+        # suffix on the name (so a file named just ".sql" counts, stem "").
         queries_dir = src_dir / "queries"
-        query_files: list[Path] = []
-        if queries_dir.is_dir():
-            query_files = sorted(p for p in queries_dir.iterdir() if p.is_file() and p.suffix.lower() == ".sql")
-            for qfile in query_files:
-                try:
-                    qtext = _read_text_like_server(qfile)
-                except OSError as exc:
-                    rep.fail("sources", "SRC-08", f"{source_id}: {qfile.name}: cannot be read: {exc}")
-                    continue
-                qerrors, _query = check_named_query(source_id, qfile.name, qtext)
-                for check, sid, file, msg in qerrors:
-                    rep.fail("sources", check, f"{sid}: {file}: {msg}")
+        query_listing, q_list_err = _list_dir(queries_dir)
+        if q_list_err is not None:
+            rep.fail("sources", "SRC-08", f"{source_id}: queries/ cannot be read, so its named queries cannot be checked: {q_list_err}")
+            continue
+        query_count = 0  # every *.sql the server would see, readable or not
+        for qname in sorted(n for n in query_listing if _SQL_SUFFIX_RE.search(n)):
+            kind, kind_err = _file_kind(queries_dir / qname)
+            if kind == "missing":
+                continue
+            query_count += 1
+            if kind == "error":
+                rep.fail("sources", "SRC-08", f"{source_id}: {qname}: cannot be read: {kind_err}")
+                continue
+            try:
+                qtext = _read_text_like_server(queries_dir / qname)
+            except OSError as exc:
+                rep.fail("sources", "SRC-08", f"{source_id}: {qname}: cannot be read: {exc}")
+                continue
+            qerrors, _query = check_named_query(source_id, qname, qtext)
+            for check, sid, file, msg in qerrors:
+                rep.fail("sources", check, f"{sid}: {file}: {msg}")
 
         # ── SRC-14: adhoc:false requires >= 1 named query ──
-        if not adhoc and len(query_files) == 0:
+        if not adhoc and query_count == 0:
             rep.fail("sources", "SRC-14", f"{source_id}: adhoc is false but declares zero named queries")
 
 
