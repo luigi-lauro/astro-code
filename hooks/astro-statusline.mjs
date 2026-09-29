@@ -85,14 +85,16 @@ if (prev && typeof prev.command === 'string' && prev.command) {
 // as the row layout, so it is resolved before any of them.
 const cols = termWidth();
 
-// The narrowest single line on which the gauge BARS still fit alongside model,
-// branch, version and project state. Measured, not guessed: with bars the one-line
-// render is ~145 columns, so anything below this reflows — which is exactly the
-// C8 failure. Above it the bars are free; below it they cost a second row.
-const BAR_WIDTH_FLOOR = 150;
-const barsFit = cols === 0 || cols >= BAR_WIDTH_FLOOR;
+// The single line carries the gauge BARS when the whole line, bars included, fits the
+// terminal: measured below once every segment is known, with the branch at its FULL
+// length (a branch truncated to make room for bars is the C8 failure, not a fit).
+// A fixed floor (150 columns, sized for the busiest line: model, branch, version and
+// project state at ~145) hid the bars from a 147-column terminal whose line was 80
+// columns wide, while the same terminal's row layout drew them from 130 columns.
+let barsFit = cols === 0;
 
 let claude = '';
+let claudeBarred = '';
 if (data) {
   const tp = data.transcript_path;
   // The window Claude Code itself runs on — the one auto-compaction uses — arrives in the
@@ -111,7 +113,8 @@ if (data) {
   // window grows and modelLimit hasn't caught up. Claude Code's own figure is not second-guessed.
   if (!reportedWindow && tokens != null && limit && tokens > limit) limit = Math.max(1_000_000, tokens);
   // Drawn like the quota gauges and shed the same way: bar above the floor, number below.
-  claude = renderClaudeSegment({ model: data.model, tokens, limit, bar: barsFit });
+  claude = renderClaudeSegment({ model: data.model, tokens, limit, bar: false });
+  claudeBarred = renderClaudeSegment({ model: data.model, tokens, limit, bar: true });
 }
 
 // (3) subscription rate-limit quota — how much of the rolling 5h/7d windows
@@ -127,15 +130,15 @@ if (data) {
 // to 145 columns and split a 110-column terminal into two rows: the bars were bought
 // with width the line did not have. Numbers alone still answer "how much is left",
 // which is the question; the bar is the luxury, so it is the first thing to go.
-const rlWide = barsFit ? 'full' : 'numbers';
-const rateLimitsFull = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: rlWide }) : '';
+let rateLimitsFull = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'numbers' }) : '';
+const rateLimitsBarred = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'full' }) : '';
 
 // (4) prompt cache — warm until when, or cold and what the next turn re-writes, plus
 // the cause of a miss for a few minutes after it. On the single line below the bar
 // floor it gets ONE fact (the `minimal` tier), and further down it is dropped from the
 // single line rather than being the segment that forces a second row — see below.
-const pcWide = barsFit ? 'full' : 'minimal';
-let cacheWide = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: pcWide }) : '';
+let cacheWide = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: 'minimal' }) : '';
+const cacheBarred = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: 'full' }) : '';
 
 // (5) the astro project segment — current milestone/phase/status + live activity.
 // The cwd comes from Claude's stdin blob; from it we walk up to the `.astrocode/`.
@@ -232,6 +235,17 @@ const BRANCH_MIN = 12;
 // a cold cache costs tokens, a second row costs the layout every render. If the other
 // bounded segments fit but adding the cache would not, it goes. When the line is going
 // to split regardless, it keeps its place and rides row 2 via `cacheRow`.
+// The bar tier for the single line, now that every segment is known: the whole line
+// with bars and the branch untruncated must fit the row. Unknown width (0) keeps bars.
+if (!barsFit) {
+  const barred = [base, claudeBarred, rateLimitsBarred, cacheBarred, project, branch, update].filter(Boolean);
+  barsFit = visibleWidth(barred.join(STATUS_SEP)) <= rowWidth;
+}
+if (barsFit) {
+  claude = claudeBarred;
+  rateLimitsFull = rateLimitsBarred;
+  cacheWide = cacheBarred;
+}
 if (cacheWide && rowWidth) {
   const without = [base, claude, rateLimitsFull, project, update].filter(Boolean);
   const fitsWithout = visibleWidth(without.join(STATUS_SEP)) <= rowWidth;
