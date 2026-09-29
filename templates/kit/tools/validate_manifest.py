@@ -295,6 +295,83 @@ def check_pip_verify(manifest: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Phase 102 — sources[] contract (SRC-01..03), shared grammar with astro's
+# source-contract.ts (t2). Schema (SRC-01) is enforced by the JSON Schema
+# itself (sourceEntry in kit-manifest.v4.schema.json); this layer adds what
+# the schema cannot express: duplicate ids (SRC-02) and the contract-version
+# gate (SRC-03).
+# ---------------------------------------------------------------------------
+
+_SOURCES_MIN_CONTRACT = (1, 1, 0)
+# Exactly one comparator (^X.Y.Z, ~X.Y.Z, >=X.Y.Z, =X.Y.Z or bare X.Y.Z) —
+# the same five forms source-contract.ts accepts. A compound range, a bare
+# absent value, or anything else fails.
+_SINGLE_COMPARATOR_RE = re.compile(r"^(\^|~|>=|=)?(\d+)\.(\d+)\.(\d+)$")
+
+
+def _sources_contract_satisfied(range_str) -> bool:
+    if not isinstance(range_str, str):
+        return False
+    m = _SINGLE_COMPARATOR_RE.match(range_str.strip())
+    if not m:
+        return False
+    version = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+    return version >= _SOURCES_MIN_CONTRACT
+
+
+def _prefix_source_schema_errors(errors: list) -> list:
+    """Schema-level errors under `sources` are SRC-01; prefix the reason so
+    every rejection names the stable check ID, matching the offline/server
+    contract (t9 parity)."""
+    out = []
+    for err in errors:
+        if err.path == "sources" or err.path.startswith("sources["):
+            out.append(Error(path=err.path, rule=err.rule, reason=f"SRC-01 {err.reason}"))
+        else:
+            out.append(err)
+    return out
+
+
+def check_sources(manifest: dict) -> list:
+    """Errors for SRC-02 (duplicate source id) and SRC-03 (contract-version
+    gate). A no-sources or empty-sources manifest is never checked — the gate
+    only applies when `sources` is non-empty."""
+    errors: list = []
+    if not isinstance(manifest, dict) or manifest.get("manifest_version") != 4:
+        return errors
+    sources = manifest.get("sources")
+    if not isinstance(sources, list) or len(sources) == 0:
+        return errors
+
+    seen: set[str] = set()
+    for i, s in enumerate(sources):
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("id")
+        if not isinstance(sid, str):
+            continue
+        if sid in seen:
+            errors.append(Error(
+                path=f"sources[{i}].id",
+                rule="SRC-02",
+                reason=f"SRC-02 duplicate source id {sid!r}",
+            ))
+            continue
+        seen.add(sid)
+
+    if not _sources_contract_satisfied(manifest.get("contract_version")):
+        errors.append(Error(
+            path="contract_version",
+            rule="SRC-03",
+            reason=(
+                "SRC-03 a non-empty sources[] requires contract_version to satisfy "
+                "^1.1.0 — declare contract_version ^1.1.0"
+            ),
+        ))
+    return errors
+
+
+# ---------------------------------------------------------------------------
 # Cross-artifact invariant (D-05 / R-AK-02)
 # ---------------------------------------------------------------------------
 
@@ -364,8 +441,12 @@ def validate_one(path_str: str, schema: dict, manifest: dict | None = None) -> t
             return [], [], 2
         if manifest is None:
             return [fatal], [], 0
-    raw_errors = validate(schema, manifest, "", root_schema=schema)
-    errors = _rewrite_sha256_errors(raw_errors, manifest) + check_pip_verify(manifest)
+    raw_errors = _prefix_source_schema_errors(validate(schema, manifest, "", root_schema=schema))
+    errors = (
+        _rewrite_sha256_errors(raw_errors, manifest)
+        + check_pip_verify(manifest)
+        + check_sources(manifest)
+    )
     warnings = collect_warnings(manifest)
     return errors, warnings, 0
 
