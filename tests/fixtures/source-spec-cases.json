@@ -1,0 +1,933 @@
+{
+  "version": 1,
+  "base": {
+    "manifest": {
+      "id": "sources-demo",
+      "name": "Sources Demo",
+      "description": "Demo kit exercising the sources contract",
+      "version": "1.0.0",
+      "tags": [
+        "test"
+      ],
+      "contract_version": "^1.1.0",
+      "requires": {
+        "tools": [],
+        "runtime": [],
+        "astro": ">=0.3.0"
+      },
+      "sources": [
+        {
+          "id": "erp",
+          "engine": "sqlserver",
+          "access": "read_only",
+          "required": true,
+          "description": "ERP"
+        }
+      ]
+    },
+    "files": {
+      "src/sources/erp/SOURCE.md": "# ERP\n\nThe ERP order database.\n",
+      "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n",
+      "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+    }
+  },
+  "cases": [
+    {
+      "name": "base",
+      "criteria": "base",
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "no-queries-dir",
+      "criteria": "C7",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": null
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "parameterless-query",
+      "criteria": "C7",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description All open orders\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "joins-undeclared-warn",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n        joins: dbo.Unknown.Id\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": true,
+        "warn": [
+          {
+            "check": "SRC-07"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bracketed-table-key",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  \"[dbo].[v_Open Orders]\":\n    purpose: Bracketed schema-qualified key\n    columns:\n      OrderId:\n        meaning: Primary key\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "unqualified-table-key",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  v_OpenOrders:\n    purpose: Unqualified key\n    columns:\n      OrderId:\n        meaning: Primary key\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "malformed-joins-ref",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n        joins: notaref\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "empty-sources-old-contract",
+      "criteria": "C2/C3",
+      "manifest": {
+        "contract_version": "^1.0.0",
+        "sources": []
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-defaults-accepted",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Status nvarchar(20) optional default=Open\n-- @param Limit int optional default=100\n-- @param Since date optional default=2026-01-01\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders\nWHERE CustomerId = @CustomerId AND Status = @Status AND Since <= @Since AND OrderId <= @Limit\nORDER BY OrderId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "max-rows-accepted",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 500\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "with-cte-accepted",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n-- a trailing comment inside the body is fine\nWITH cte AS (\n  SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n)\nSELECT OrderId, Total FROM cte; -- trailing semicolon\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "adhoc-default-true",
+      "criteria": "C15a",
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "adhoc-false-with-query",
+      "criteria": "C15b",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": false
+          }
+        ]
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "type-matrix-accepted",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Type matrix\n-- @param A int required\n-- @param B bigint required\n-- @param C bit required\n-- @param D decimal(18,2) required\n-- @param E nvarchar(50) required\n-- @param F nvarchar(max) required\n-- @param G varchar(max) required\n-- @param H date required\n-- @param I datetime2 required\n-- @param J uniqueidentifier required\n-- @param K NVARCHAR(MAX) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders\nWHERE OrderId = @A AND OrderId = @B AND OrderId = @C AND OrderId = @D\n  AND OrderId = @E AND OrderId = @F AND OrderId = @G AND OrderId = @H\n  AND OrderId = @I AND OrderId = @J AND OrderId = @K\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "id-uppercase",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "Erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "id-leading-digit",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "1erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "id-too-long",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "engine-not-sqlserver",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "postgres",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "access-not-read-only",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_write",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "description-empty",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": ""
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "description-too-long",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "unknown-key",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "unknown": "nope"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "required-not-boolean",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": "yes",
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "adhoc-string-no",
+      "criteria": "C15d",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": "no"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "adhoc-int-zero",
+      "criteria": "C15d",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": 0
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "duplicate-source-id",
+      "criteria": "C1",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          },
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP again"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-02"
+      }
+    },
+    {
+      "name": "contract-absent",
+      "criteria": "C1h",
+      "manifest": {
+        "contract_version": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-1.0.0",
+      "criteria": "C1h",
+      "manifest": {
+        "contract_version": "1.0.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-caret-1.0.0",
+      "criteria": "C1h",
+      "manifest": {
+        "contract_version": "^1.0.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "missing-source-md",
+      "criteria": "C1b",
+      "files": {
+        "src/sources/erp/SOURCE.md": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "empty-source-md",
+      "criteria": "SRC-04",
+      "files": {
+        "src/sources/erp/SOURCE.md": "   \n  "
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "missing-schema-yaml",
+      "criteria": "C1c",
+      "files": {
+        "src/sources/erp/schema.yaml": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-05"
+      }
+    },
+    {
+      "name": "schema-yaml-unparseable",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\n  tables: [broken"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-missing-version",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.yaml": "tables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-table-no-purpose",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    columns:\n      OrderId:\n        meaning: Primary key\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-column-no-meaning",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId:\n        type: int\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-unknown-key",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    columns:\n      OrderId:\n        meanin: Primary key\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "query-name-mismatch",
+      "criteria": "C1e",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name wrong_name\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-missing-description",
+      "criteria": "C1e",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-unknown-tag",
+      "criteria": "SRC-08",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @nmae bogus\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "name-invalid-pattern",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": null,
+        "src/sources/erp/queries/OpenOrders.sql": "-- @name OpenOrders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-undeclared-param",
+      "criteria": "C1f",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Region = @Other\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-09"
+      }
+    },
+    {
+      "name": "query-unused-param",
+      "criteria": "C1g",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Unused int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-09"
+      }
+    },
+    {
+      "name": "param-no-qualifier",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-unknown-type",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId integerx required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-on-required",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required default=5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-bad-int",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Limit int optional default=abc\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = 1 -- @Limit unused ok\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-bad-date",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Since date optional default=yesterday\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "returns-missing",
+      "criteria": "C11a",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-empty",
+      "criteria": "C11b",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns \nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-column-no-type",
+      "criteria": "C11c",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-unknown-type",
+      "criteria": "C11d",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total money2\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-duplicate-column",
+      "criteria": "C11e",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, OrderId int\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "body-update",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nUPDATE dbo.Orders SET Total = 0 WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-delete",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nDELETE FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-insert",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nINSERT INTO dbo.Orders (CustomerId) VALUES (@CustomerId)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-exec",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nEXEC dbo.sp_x @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-stacked-drop",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId FROM dbo.Orders WHERE CustomerId = @CustomerId; DROP TABLE dbo.Orders\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-two-selects",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId FROM dbo.Orders WHERE CustomerId = @CustomerId; SELECT 1;\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-select-into",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId INTO #tmp FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-empty",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "max-rows-zero",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 0\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-negative",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows -5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-non-integer",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows abc\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-fraction",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 1.5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-duplicate",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 500\n-- @max_rows 600\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "adhoc-false-no-queries",
+      "criteria": "C15c",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": false
+          }
+        ]
+      },
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-14"
+      }
+    },
+    {
+      "name": "type-nvarchar-abc",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad nvarchar(abc) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "type-decimal-xy",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad decimal(x,y) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "type-varchar-negative",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad varchar(-1) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "type-strng-unknown",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad strng required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    }
+  ]
+}

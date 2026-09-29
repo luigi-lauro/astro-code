@@ -1094,10 +1094,9 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
 
 
 def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
-    """SRC-05..14: per-source schema.yaml presence + validity, plus named
-    query header/body checks. Runs against the AUTHORED tree
-    (src/sources/<id>/...), not the zip layout — the zip-only checks
-    (SRC-04 SOURCE.md, SRC-14 adhoc) land in a5."""
+    """SRC-04..14: per-source SOURCE.md/schema.yaml presence + validity,
+    named query header/body checks, and the adhoc:false rule. Runs against
+    the AUTHORED tree (src/sources/<id>/...), not the zip layout."""
     if not isinstance(manifest, dict):
         return
     sources = manifest.get("sources")
@@ -1109,10 +1108,18 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
         source_id = src.get("id")
         if not isinstance(source_id, str):
             continue
+        adhoc = src.get("adhoc") is not False
         src_dir = root / "src" / "sources" / source_id
         # Exact-case directory listing — Sources/ or Schema.yaml fails here
         # exactly as it does on the server (SRC-05/SRC-04 zip convention).
         names = set(os.listdir(src_dir)) if src_dir.is_dir() else set()
+
+        # ── SRC-04: SOURCE.md present and non-empty ──
+        if "SOURCE.md" not in names:
+            rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md missing")
+        elif not (src_dir / "SOURCE.md").read_text(encoding="utf-8").strip():
+            rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md is empty")
+
         if "schema.yaml" not in names:
             rep.fail("sources", "SRC-05", f"{source_id}: schema.yaml missing")
             continue
@@ -1130,12 +1137,18 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
 
         # ── SRC-08..13: named queries (direct *.sql children of queries/) ──
         queries_dir = src_dir / "queries"
+        query_files: list[Path] = []
         if queries_dir.is_dir():
-            for qfile in sorted(p for p in queries_dir.iterdir() if p.is_file() and p.suffix.lower() == ".sql"):
+            query_files = sorted(p for p in queries_dir.iterdir() if p.is_file() and p.suffix.lower() == ".sql")
+            for qfile in query_files:
                 qtext = qfile.read_text(encoding="utf-8")
                 qerrors, _query = check_named_query(source_id, qfile.name, qtext)
                 for check, sid, file, msg in qerrors:
                     rep.fail("sources", check, f"{sid}: {file}: {msg}")
+
+        # ── SRC-14: adhoc:false requires >= 1 named query ──
+        if not adhoc and len(query_files) == 0:
+            rep.fail("sources", "SRC-14", f"{source_id}: adhoc is false but declares zero named queries")
 
 
 def load_recipe(path: Path) -> tuple[dict, str]:
