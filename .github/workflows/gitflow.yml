@@ -1,0 +1,29 @@
+name: gitflow
+
+# git-flow: only `develop`, `release/*` and `hotfix/*` from this repository merge into
+# `main`. Everything else — features, fixes, anything from a fork — targets `develop`.
+# `edited` re-runs the check when a PR's base branch is changed.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  base-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only develop, release/* and hotfix/* merge into main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+            case "$HEAD_REF" in
+              develop|release/*|hotfix/*) echo "ok: $HEAD_REF -> main"; exit 0 ;;
+            esac
+          fi
+          echo "::error::PRs into main come only from develop, release/* or hotfix/* in $BASE_REPO. This PR is $HEAD_REPO:$HEAD_REF — change its base branch to develop (see CONTRIBUTING.md)."
+          exit 1
