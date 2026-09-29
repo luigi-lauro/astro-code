@@ -1033,6 +1033,21 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
     return errors, query
 
 
+def _read_text_like_server(path: Path) -> str:
+    """Decode as astroport does (fflate strFromU8): one leading BOM dropped,
+    invalid UTF-8 replaced with U+FFFD rather than rejected."""
+    return path.read_bytes().decode("utf-8-sig", errors="replace")
+
+
+def _is_regular_file(path: Path) -> bool:
+    """True for a regular file, following symlinks; False for directories,
+    broken links and symlink loops (is_file() raises on a loop)."""
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
 def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
     """SRC-04..14: per-source SOURCE.md/schema.json presence + validity,
     named query header/body checks, and the adhoc:false rule. Runs against
@@ -1057,21 +1072,36 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
         # SOURCE.md and queries are read as utf-8-sig: a leading BOM is
         # dropped exactly as astroport's TextDecoder (fflate strFromU8) drops
         # it server-side. schema.json has its own strict reader below.
+        # A name that is not a regular file (a directory, a broken symlink) is
+        # "missing", exactly as the server sees a zip that only holds
+        # SOURCE.md/x or schema.json/x. A file that cannot be read fails the
+        # same check with the OS error instead of a traceback.
         # ── SRC-04: SOURCE.md present and non-empty ──
-        if "SOURCE.md" not in names:
+        if "SOURCE.md" not in names or not _is_regular_file(src_dir / "SOURCE.md"):
             rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md missing")
-        elif not (src_dir / "SOURCE.md").read_text(encoding="utf-8-sig").strip():
-            rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md is empty")
+        else:
+            try:
+                source_md = _read_text_like_server(src_dir / "SOURCE.md")
+            except OSError as exc:
+                rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md cannot be read: {exc}")
+            else:
+                if not source_md.strip():
+                    rep.fail("sources", "SRC-04", f"{source_id}: SOURCE.md is empty")
 
         # ── SRC-05..07: schema.json (ADR-016) ──
         # Only the exact name counts: a schema.yaml shipped instead is
         # "schema.json missing". Raw bytes go to the strict JSON reader,
         # which strips exactly one leading BOM itself.
-        if "schema.json" not in names:
+        if "schema.json" not in names or not _is_regular_file(src_dir / "schema.json"):
             rep.fail("sources", "SRC-05", f"{source_id}: schema.json missing")
             continue
         try:
-            data = load_source_schema_json((src_dir / "schema.json").read_bytes())
+            raw_schema = (src_dir / "schema.json").read_bytes()
+        except OSError as exc:
+            rep.fail("sources", "SRC-05", f"{source_id}: schema.json cannot be read: {exc}")
+            continue
+        try:
+            data = load_source_schema_json(raw_schema)
         except SourceSchemaParseError as exc:
             rep.fail("sources", "SRC-06", f"{source_id}: schema.json {exc}")
             continue
@@ -1090,7 +1120,11 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
         if queries_dir.is_dir():
             query_files = sorted(p for p in queries_dir.iterdir() if p.is_file() and p.suffix.lower() == ".sql")
             for qfile in query_files:
-                qtext = qfile.read_text(encoding="utf-8-sig")
+                try:
+                    qtext = _read_text_like_server(qfile)
+                except OSError as exc:
+                    rep.fail("sources", "SRC-08", f"{source_id}: {qfile.name}: cannot be read: {exc}")
+                    continue
                 qerrors, _query = check_named_query(source_id, qfile.name, qtext)
                 for check, sid, file, msg in qerrors:
                     rep.fail("sources", check, f"{sid}: {file}: {msg}")

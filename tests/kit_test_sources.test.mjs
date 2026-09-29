@@ -5,7 +5,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, cpSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, cpSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -131,5 +131,42 @@ test('the untouched demo kit (no sources) still passes both tools', { skip: !has
   const kt = runKitTest(dir);
   assert.equal(vm.status, 0, vm.out);
   assert.equal(kt.status, 0, kt.out);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// r3 (C4): a source file that is a directory, unreadable, or a symlink loop is
+// reported as a check failure, never a traceback. A directory named like the
+// file is "missing", exactly as the server sees a zip with only schema.json/x.
+test('unreadable or non-file SOURCE.md / schema.json are reported, not crashed on', { skip: !hasPython }, () => {
+  const variants = [
+    ['schema.json is a directory', (d) => { rmSync(join(d, 'src/sources/erp/schema.json')); mkdirSync(join(d, 'src/sources/erp/schema.json/x'), { recursive: true }); }, 'SRC-05'],
+    ['SOURCE.md is a directory', (d) => { rmSync(join(d, 'src/sources/erp/SOURCE.md')); mkdirSync(join(d, 'src/sources/erp/SOURCE.md')); }, 'SRC-04'],
+    ['schema.json is a symlink loop', (d) => { rmSync(join(d, 'src/sources/erp/schema.json')); symlinkSync('schema.json', join(d, 'src/sources/erp/schema.json')); }, 'SRC-05'],
+  ];
+  if (process.getuid && process.getuid() !== 0) {
+    variants.push(['schema.json is unreadable', (d) => chmodSync(join(d, 'src/sources/erp/schema.json'), 0o000), 'SRC-05']);
+  }
+  const valid = CORPUS.cases.find((c) => c.expect.ok && !c.files) ?? { name: 'base', expect: { ok: true } };
+  for (const [label, mutate, check] of variants) {
+    const dir = scratchKitForCase(valid);
+    mutate(dir);
+    const kt = runKitTest(dir);
+    assert.ok(!hasTraceback(kt.out), `${label}: kit_test.py traceback\n${kt.out}`);
+    assert.notEqual(kt.status, 0, `${label}: expected a failure\n${kt.out}`);
+    assert.ok(kt.out.includes(check), `${label}: expected ${check}\n${kt.out}`);
+    if (label === 'schema.json is unreadable') chmodSync(join(dir, 'src/sources/erp/schema.json'), 0o644);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// r3: invalid UTF-8 in SOURCE.md or a query file is decoded leniently (U+FFFD),
+// as astroport's fflate strFromU8 does — never a traceback, same verdict.
+test('invalid UTF-8 in SOURCE.md or a query is decoded like the server, no traceback', { skip: !hasPython }, () => {
+  const valid = CORPUS.cases.find((c) => c.expect.ok && !c.files) ?? { name: 'base', expect: { ok: true } };
+  const dir = scratchKitForCase(valid);
+  writeFileSync(join(dir, 'src/sources/erp/SOURCE.md'), Buffer.from([0xef, 0xbb, 0xbf, 0x41, 0xff, 0x42, 0x0a]));
+  const kt = runKitTest(dir);
+  assert.ok(!hasTraceback(kt.out), kt.out);
+  assert.equal(kt.status, 0, `non-empty SOURCE.md with invalid bytes must pass, as on the server\n${kt.out}`);
   rmSync(dir, { recursive: true, force: true });
 });
