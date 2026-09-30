@@ -398,13 +398,61 @@ test('renderRateLimits appends each outpacing window its pace, in every tier tha
     seven_day: { used_percentage: 40, resets_at: now + 4 * 86_400 },     // on track: no pace
   };
   const full = renderRateLimits({ rateLimits, nowSeconds: now, detail: 'full' }).replace(/\x1b\[[0-9;]*m/g, '');
-  assert.match(full, /5h [█░]{5} 60% ⚠ pace \+20%/);
-  assert.doesNotMatch(full, /7d [█░]{5} 40% ⚠/, 'a window on track shows no pace');
+  assert.match(full, /5h [█░▏]{5} 60% ⚠ pace \+20%/);
+  assert.doesNotMatch(full, /7d [█░▏]{5} 40% ⚠/, 'a window on track shows no pace');
   const hottest = renderRateLimits({ rateLimits, nowSeconds: now, detail: 'hottest' }).replace(/\x1b\[[0-9;]*m/g, '');
   assert.equal(hottest, '5h 60% ⚠ pace +20%');
   const both = renderRateLimits({ rateLimits: { ...rateLimits, seven_day: { used_percentage: 50, resets_at: now + 4 * 86_400 } },
     nowSeconds: now, detail: 'numbers' }).replace(/\x1b\[[0-9;]*m/g, '');
   assert.equal(both, '5h 60% ⚠ pace +20% · 7d 50% ⚠ pace +17%', 'both windows outpacing at once');
+});
+
+test('a judged window\'s bar carries a one-cell pace marker at the elapsed share, without widening it', () => {
+  const now = 1_000_000_000;
+  const day = 86_400;
+  const bar = (rl, detail = 'full') => renderRateLimits({ rateLimits: rl, nowSeconds: now, detail })
+    .replace(/\x1b\[[0-9;]*m/g, '').match(/[█░▏]{5}/)[0];
+  // 3 of 7 days gone (42.86% -> cell 2 of 5), 40% used (2 cells): the clock is at the edge of the fill.
+  assert.equal(bar({ seven_day: { used_percentage: 40, resets_at: now + 4 * day } }), '██▏░░');
+  // Marker inside the unused part: 20% used (1 cell), same clock.
+  assert.equal(bar({ seven_day: { used_percentage: 20, resets_at: now + 4 * day } }), '█░▏░░');
+  // Both ends: 10% gone -> cell 0; the window's very end (and beyond) -> the last cell.
+  assert.equal(bar({ seven_day: { used_percentage: 5, resets_at: now + 6.3 * day } }), '▏░░░░');
+  assert.equal(bar({ five_hour: { used_percentage: 100, resets_at: now } }), '████▏');
+  assert.equal(bar({ five_hour: { used_percentage: 100, resets_at: now - 60 } }), '████▏');
+  // Not judged: no resets_at, or under 10% of the window gone: the plain bar, as before.
+  assert.equal(bar({ five_hour: { used_percentage: 40 } }), '██░░░');
+  assert.equal(bar({ five_hour: { used_percentage: 40, resets_at: now + 4.75 * 3600 } }), '██░░░');
+  assert.equal(renderRateLimits({ rateLimits: { spend_limit: { used_percentage: 40 } }, nowSeconds: now, detail: 'full' })
+    .replace(/\x1b\[[0-9;]*m/g, ''), 'cap ██░░░ 40%');
+  // The marker never widens a tier.
+  const rl = { five_hour: { used_percentage: 60, resets_at: now + 2.5 * 3600 }, seven_day: { used_percentage: 40, resets_at: now + 4 * day } };
+  assert.equal(visibleWidth(renderRateLimits({ rateLimits: rl, nowSeconds: now, detail: 'full' })),
+    '5h █████ 60% ⚠ pace +20% · 7d █████ 40%'.length);
+});
+
+test('past the marker the used cells take the pace colour; before it, and on track, the ramp colour', (t) => {
+  const now = 1_000_000_000;
+  const day = 86_400;
+  delete process.env.NO_COLOR;   // the file runs plain; this test reads the colour codes
+  t.after(() => { process.env.NO_COLOR = '1'; });
+  const render = (rateLimits) => renderRateLimits({ rateLimits, nowSeconds: now, detail: 'full' });
+  const reset = '\x1b[0m';
+  const bold = '\x1b[1m';
+  // 70% used, 3 of 7 days gone: +63.3 -> red tail; ramp yellow. 4 cells filled, marker in cell 2:
+  // cells 0-1 ramp, the marker, cell 3 (used, past it) red, cell 4 (unused) ramp.
+  const yellow = rampColor(0.7);
+  const red = paceColor(63.3);
+  assert.ok(render({ seven_day: { used_percentage: 70, resets_at: now + 4 * day } })
+    .startsWith(`7d ${yellow}██${reset}${bold}▏${reset}${red}█${reset}${yellow}░${reset} `));
+  // 50% used, a quarter of 5h gone: +100 -> red tail on a green ramp. Marker in cell 1: cell 0 ramp, marker,
+  // cell 2 (used, past it) red, cells 3-4 unused ramp.
+  const green = rampColor(0.5);
+  assert.ok(render({ five_hour: { used_percentage: 50, resets_at: now + 3.75 * 3600 } })
+    .startsWith(`5h ${green}█${reset}${bold}▏${reset}${red}█${reset}${green}░░${reset} `));
+  // On track (30% used, 3 of 7 days gone): the marker, and no stronger colour anywhere.
+  const track = render({ seven_day: { used_percentage: 30, resets_at: now + 4 * day } });
+  assert.ok(track.includes('▏') && !track.includes(red) && !track.includes(paceColor(20)));
 });
 
 test('renderRateLimits shows both windows with a distinct marker + bar each, at any usage level', () => {

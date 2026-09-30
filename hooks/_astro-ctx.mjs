@@ -655,12 +655,19 @@ function buildWindow(key, data) {
 // a 5h window say nothing), and only when it overshoots; null otherwise.
 const RATE_LIMIT_WINDOW_SECONDS = { five_hour: 5 * 3600, seven_day: 7 * 86_400 };
 const PACE_MIN_ELAPSED = 0.1;
-export function paceOvershoot(key, pct, resetsAt, nowSeconds) {
+// The elapsed share of a window (0..1), or null when it is not judged: no window
+// length, no `resets_at`, or less than PACE_MIN_ELAPSED of it gone.
+function elapsedShare(key, resetsAt, nowSeconds) {
   const length = RATE_LIMIT_WINDOW_SECONDS[key];
-  if (!length || !validPct(pct) || !validPct(resetsAt)) return null;
-  const elapsed = Math.min(Math.max(nowSeconds - (resetsAt - length), 0), length);
-  if (elapsed < PACE_MIN_ELAPSED * length) return null;
-  const over = (pct * length) / elapsed - 100;
+  if (!length || !validPct(resetsAt)) return null;
+  const share = Math.min(Math.max(nowSeconds - (resetsAt - length), 0), length) / length;
+  return share < PACE_MIN_ELAPSED ? null : share;
+}
+
+export function paceOvershoot(key, pct, resetsAt, nowSeconds) {
+  const share = elapsedShare(key, resetsAt, nowSeconds);
+  if (share == null || !validPct(pct)) return null;
+  const over = pct / share - 100;
   return over > 0 ? over : null;
 }
 
@@ -679,13 +686,33 @@ export function paceColor(over) {
 // promise was costed against.
 const RATE_LIMIT_BAR_WIDTH = 5;
 
+// A window's bar with its pace marker: the cell at the elapsed share of the window
+// becomes a thin `▏` (same width, so no tier changes size), and the used cells past
+// it are drawn in the pace colour once the window outruns its pace by more than 5%
+// (the dim band is weaker than the ramp, so it keeps the ramp's colour). Windows
+// that are not judged get the plain bar.
+const PACE_MARK = '▏';
+function renderWindowBar(w, nowSeconds) {
+  const col = rampColor(w.pct / 100);
+  const share = elapsedShare(w.key, w.resetsAt, nowSeconds);
+  const bar = [...progressBar(w.pct / 100, RATE_LIMIT_BAR_WIDTH)];
+  if (share == null) return paint(bar.join(''), col);
+  const mark = Math.min(RATE_LIMIT_BAR_WIDTH - 1, Math.floor(share * RATE_LIMIT_BAR_WIDTH));
+  const over = paceOvershoot(w.key, w.pct, w.resetsAt, nowSeconds);
+  const tailCol = over > 5 && col !== ANSI.red ? paceColor(over) : col;
+  const after = bar.slice(mark + 1).join('');
+  const used = after.replace(/░+$/, '');
+  return paint(bar.slice(0, mark).join(''), col) + paint(PACE_MARK, ANSI.bold)
+    + paint(used, tailCol) + paint(after.slice(used.length), col);
+}
+
 // One window's rendering at a given detail: `bar` toggles the graphical fill
 // (D4 sheds bars before numbers); the reset countdown only ever appears once
 // the window is hot (D2/D6).
 function renderWindow(w, bar, nowSeconds) {
   const col = rampColor(w.pct / 100);
   const bits = [w.label];
-  if (bar) bits.push(paint(progressBar(w.pct / 100, RATE_LIMIT_BAR_WIDTH), col));
+  if (bar) bits.push(renderWindowBar(w, nowSeconds));
   bits.push(paint(`${Math.round(w.pct)}%`, col));
   let out = bits.join(' ');
   if (isHotWindow(w.pct) && validPct(w.resetsAt)) {
