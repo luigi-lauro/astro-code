@@ -2484,6 +2484,60 @@
         "ok": false,
         "check": "SRC-10"
       }
+    },
+    {
+      "name": "body-chain-commit-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId COMMIT\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-chain-set-lock-timeout-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId SET LOCK_TIMEOUT -1 SELECT OrderId, Total FROM dbo.Orders\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-chain-second-select-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId SELECT 2 AS OrderId, 3 AS Total\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-chain-begin-tran-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId BEGIN TRAN\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-cte-union-offset-fetch-ok",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nWITH o AS (SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId UNION ALL SELECT OrderId, Total FROM dbo.Archive WHERE CustomerId = @CustomerId)\nSELECT OrderId, Total FROM o -- COMMIT in a comment\nORDER BY OrderId OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;\n"
+      },
+      "expect": {
+        "ok": true
+      }
     }
   ],
   "default_literals": [
@@ -3308,6 +3362,636 @@
     {
       "type": "uniqueidentifier",
       "literal": "6F9619FF-8B86-D011-B42D-00C04FC964FG",
+      "ok": false
+    }
+  ],
+  "single_select": [
+    {
+      "sql": "SELECT 1 AS Value",
+      "ok": true
+    },
+    {
+      "sql": "SELECT OrderId FROM dbo.Orders WHERE CustomerId = @CustomerId;",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t -- trailing comment",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t; -- a comment after the one trailing ';'",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t;  /* c */  \n",
+      "ok": true
+    },
+    {
+      "sql": "WITH cte AS (SELECT a FROM t) SELECT a FROM cte",
+      "ok": true
+    },
+    {
+      "sql": "WITH c1 (x, y) AS (SELECT 1, 2), c2 AS (SELECT x FROM c1) SELECT * FROM c2",
+      "ok": true
+    },
+    {
+      "sql": "WITH r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 10) SELECT n FROM r OPTION (MAXRECURSION 100)",
+      "ok": true
+    },
+    {
+      "sql": "WITH XMLNAMESPACES ('urn:x' AS ns) SELECT 1 AS a FOR XML PATH('r')",
+      "ok": true
+    },
+    {
+      "sql": "WITH [my cte] AS (SELECT 1 AS a) SELECT a FROM [my cte]",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION SELECT b FROM u",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION ALL SELECT b FROM u EXCEPT SELECT c FROM v INTERSECT SELECT d FROM w",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION (SELECT b FROM u)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION ALL (SELECT b FROM u) ORDER BY a",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a OFFSET @skip ROWS FETCH FIRST 1 ROW ONLY",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, b FROM t FOR JSON PATH, INCLUDE_NULL_VALUES",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t FOR XML RAW, ROOT('rows'), TYPE",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t FOR BROWSE",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t FOR SYSTEM_TIME AS OF '2026-01-01'",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (SELECT b FROM u WHERE u.c = t.c)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.id = t.id)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE NOT EXISTS (SELECT 1 FROM u) AND b = ANY (SELECT b FROM v)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT (SELECT MAX(b) FROM u) AS m, ISNULL((SELECT TOP 1 c FROM v), 0) AS n FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT x.a FROM (SELECT a FROM t) AS x JOIN (SELECT a FROM u) y ON y.a = x.a",
+      "ok": true
+    },
+    {
+      "sql": "SELECT t.a, o.b FROM t CROSS APPLY (SELECT TOP 1 b FROM o WHERE o.a = t.a ORDER BY b DESC) o",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY c DESC) AS rn, SUM(d) OVER (ORDER BY c ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT CASE WHEN a > 0 THEN 'pos' WHEN a < 0 THEN 'neg' ELSE 'zero' END AS sign FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT CASE a WHEN 1 THEN CASE WHEN b = 1 THEN 'x' ELSE 'y' END ELSE 'z' END AS c FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT CAST((SELECT 1) AS int) AS v",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a = (SELECT 1) + (SELECT 2) FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT v.x FROM (VALUES (1), (2)) AS v(x)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t PIVOT (SUM(b) FOR c IN ([x], [y])) AS p",
+      "ok": true
+    },
+    {
+      "sql": "SELECT STRING_AGG(a, ',') WITHIN GROUP (ORDER BY a) AS s FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT TOP (10) WITH TIES a FROM t ORDER BY a",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, COUNT(*) FROM t GROUP BY a WITH ROLLUP",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, COUNT(*) FROM t GROUP BY a WITH CUBE",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WITH (INDEX(ix_a))",
+      "ok": true
+    },
+    {
+      "sql": "SELECT j.a FROM OPENJSON(@json) WITH (a int '$.a') AS j",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a LIKE '%x%' AND b BETWEEN 1 AND 10 OR c IS NOT NULL",
+      "ok": true
+    },
+    {
+      "sql": "SELECT IIF(a > 1, 'y', 'n') AS f, DATEADD(day, 1, GETDATE()) AS d, $5 + 1 AS m FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 0x1F AS b, 1.5e3 AS f, .5 AS h, 1e AS e",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = @p OPTION (RECOMPILE, MAXDOP 1)",
+      "ok": true
+    },
+    {
+      "sql": "select a from t union all select b from u order by 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT @@ROWCOUNT AS rc, @p AS p FROM #t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 'COMMIT; DELETE FROM t; BEGIN TRAN' AS note FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT N'it''s a ROLLBACK' AS note, 'SET LOCK_TIMEOUT -1' AS n2",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t /* COMMIT /* nested SELECT 2 */ still a comment BEGIN TRAN */ WHERE 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value /* /* */ COMMIT */",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t -- COMMIT\nWHERE a > 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t -- SELECT 2\r\nWHERE a > 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a\rFROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT [Select], [Commit], [Begin Tran], [a]]b] FROM [dbo].[Delete]",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS [a]]COMMIT]",
+      "ok": true
+    },
+    {
+      "sql": "SELECT \"Update\" AS \"Set\", \"a\"\"COMMIT\" FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a AS Gr\u00f6\u00dfe FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = N'x' COLLATE Latin1_General_CI_AS",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value -- a comment at the very end without a newline",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value \u212aILL",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SET LOCK_TIMEOUT -1 SELECT a AS Value FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SELECT 2 AS Value",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value BEGIN TRAN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ROLLBACK",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SAVE TRAN x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value DECLARE @x int",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value EXEC sp_who",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value EXECUTE ('SELECT 1')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value IF 1 = 1 SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WHILE 1 = 1 BREAK",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WAITFOR DELAY '00:01'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value PRINT 'x'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RAISERROR('x', 16, 1)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value THROW 50000, 'x', 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value USE master",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value GO",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RETURN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value OPEN c",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value FETCH NEXT FROM c",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value CLOSE c DEALLOCATE c",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value DBCC FREEPROCCACHE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value KILL 52",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value CHECKPOINT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SETUSER",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value REVERT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ENABLE TRIGGER tr ON t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value DISABLE TRIGGER tr ON t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value GOTO l",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RECEIVE TOP (1) * FROM q",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SEND ON CONVERSATION 'x'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value MERGE t USING u ON 1 = 1 WHEN MATCHED THEN DELETE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value TRUNCATE TABLE t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value BACKUP DATABASE x TO DISK = 'y'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SHUTDOWN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RECONFIGURE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value READTEXT t.c @p 0 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value BULK INSERT t FROM 'f'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WITH x AS (SELECT 1 AS a) SELECT a FROM x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WITH",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WITH NOLOCK",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (SELECT 1 AS a) SELECT a FROM x SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (SELECT 1 AS a) COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (DELETE FROM t) SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": "WITH SELECT AS (SELECT 1 AS a) SELECT a FROM x",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (SELECT 1 AS a)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value (SELECT 2 AS Value)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ((SELECT 2 AS Value))",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (1) (SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1(SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ELSE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value END",
+      "ok": false
+    },
+    {
+      "sql": "SELECT CASE WHEN 1 = 1 THEN 1 END END",
+      "ok": false
+    },
+    {
+      "sql": "SELECT CASE WHEN 1 = 1 THEN 1 AS x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1ELSE 2",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a FETCH NEXT 5 ROWS ONLY",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a OFFSET 1 ROWS FETCH 5",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a INTO #t FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t UNION DELETE FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t UNION",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t UNION ALL COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (1 UNION 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM (SELECT a FROM t COMMIT) x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE b = (SELECT 1 UPDATE t SET a = 1)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = 1 OR (a = 2 COMMIT)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = (1 SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM OPENROWSET('SQLNCLI', 'x', 'SELECT 1')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (USE HINT('DISABLE_OPTIMIZER_ROWGOAL'))",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value FOR UPDATE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1; SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1;;",
+      "ok": false
+    },
+    {
+      "sql": ";SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": ";",
+      "ok": false
+    },
+    {
+      "sql": "",
+      "ok": false
+    },
+    {
+      "sql": "   \n-- only a comment\n",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1)",
+      "ok": false
+    },
+    {
+      "sql": "UPDATE t SET a = 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT (a FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\rCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\r' \nCOMMIT --'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\u2028COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\u0085COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\u000bCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 'unterminated",
+      "ok": false
+    },
+    {
+      "sql": "SELECT N'unterminated''",
+      "ok": false
+    },
+    {
+      "sql": "SELECT [unterminated",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS [a]] COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \"unterminated",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 /* unterminated /* nested */ ",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value /* /* */ */ COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value $COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value\u00a0COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS \u00e9COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "\u0085SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECTX 1",
       "ok": false
     }
   ]

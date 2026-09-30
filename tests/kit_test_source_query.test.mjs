@@ -136,6 +136,50 @@ print("OK")
   assert.equal(res.status, 0, res.stdout + res.stderr);
 });
 
+// ── astro phase 104 r3: statement boundaries over the T-SQL token stream ──
+// The shared corpus's `single_select` table (byte-identical with astro's copy)
+// pins the guard: T-SQL needs no ';' between statements, so `SELECT 1 COMMIT`
+// must be rejected here exactly as the server rejects it.
+
+test('check_single_select matches every row of the shared single_select table (phase 104 r3)', { skip: !hasPython }, () => {
+  const corpus = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/source-spec-cases.json'), 'utf8'));
+  assert.ok(Array.isArray(corpus.single_select) && corpus.single_select.length > 100);
+  const script = `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(TOOLS_DIR)})
+import kit_test
+rows = json.loads(sys.stdin.read())
+print(json.dumps([[r["sql"], kit_test.check_single_select(r["sql"])[0]] for r in rows if kit_test.check_single_select(r["sql"])[0] != r["ok"]]))
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8', input: JSON.stringify(corpus.single_select) });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.deepEqual(JSON.parse(res.stdout), [], 'rows whose offline verdict differs from the corpus');
+});
+
+test('tokenize_sql is lossless, nests block comments and flags a -- comment ending at a bare CR (phase 104 r3)', { skip: !hasPython }, () => {
+  const script = `
+import sys
+sys.path.insert(0, ${JSON.stringify(TOOLS_DIR)})
+import kit_test
+sql = "SELECT N'a''b', [x]]y], \\"q\\"\\"r\\" /* a /* b */ c */ FROM t -- x\\r\\n"
+toks = kit_test.tokenize_sql(sql)
+assert "".join(t["text"] for t in toks) == sql
+assert [(t["kind"], t["text"]) for t in toks if t["kind"] != "ws"] == [
+    ("word", "SELECT"), ("string", "N'a''b'"), ("punct", ","), ("qident", "[x]]y]"), ("punct", ","),
+    ("qident", '"q""r"'), ("comment", "/* a /* b */ c */"), ("word", "FROM"), ("word", "t"), ("comment", "-- x"),
+], toks
+bare = [t for t in kit_test.tokenize_sql("SELECT 1 --x\\rCOMMIT") if t["kind"] == "comment"][0]
+crlf = [t for t in kit_test.tokenize_sql("SELECT 1 --x\\r\\nFROM t") if t["kind"] == "comment"][0]
+assert bare["flag"] == "ambiguous" and crlf["flag"] == ""
+for sql in ["SELECT 1 AS Value COMMIT", "SELECT 1 AS Value SET LOCK_TIMEOUT -1 SELECT a AS Value FROM t", "SELECT 1 AS Value BEGIN TRAN", "SELECT 1 AS Value SELECT 2 AS Value"]:
+    ok, reason = kit_test.check_single_select(sql)
+    assert not ok, sql
+print("OK")
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+});
+
 // ── End-to-end via kit_test.py CLI, mirroring the C11-C14 rejection matrix ─
 
 test('the base query passes cleanly', { skip: !hasPython }, () => {

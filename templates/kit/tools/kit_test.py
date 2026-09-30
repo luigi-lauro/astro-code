@@ -901,100 +901,391 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
     return False, f"unsupported literal kind {kind!r}"  # pragma: no cover — data drift guard
 
 
-# ── Body scan and single-SELECT guard (mirrors sql-guard.ts, t5) ───────────
+# ── Body scan and single-statement guard (mirrors sql-guard.ts, t5; rebuilt
+# on a T-SQL token stream in astro phase 104 r3) ──────────────────────────
+# ONE lexer feeds every check here: the single-statement guard, the
+# locking-hint guard (via strip_sql) and the body param scan. Rules (see
+# sql-guard.ts for the full rationale):
+#   - whitespace: exactly _WS_CHARS (never \s / isspace);
+#   - `-- …` ends at "\n" or "\r"; a comment ending at a BARE "\r", or holding
+#     VT, FF, NEL, LS or PS, is `ambiguous` (SQL Server's reading could not be
+#     confirmed, and either reading can hide code) and the guard rejects it;
+#   - `/* … */` NESTS; `'…'` / `N'…'` with `''`; `[…]` with `]]`; `"…"` with
+#     `""`; an unterminated one is `unterminated`;
+#   - word: [A-Za-z_@#][A-Za-z0-9_@#$]* (ASCII only — `éDROP` holds DROP, the
+#     Kelvin sign is not K); `$` never starts a word;
+#   - number: 0x[hex]* or digits[.digits][e[+-]digits] (`1ELSE` is 1, ELSE);
+#   - punct: any other single ASCII char; other: any other single char.
 
-_FORBIDDEN_KEYWORDS = [
-    "INSERT", "UPDATE", "DELETE", "MERGE", "EXEC", "EXECUTE", "DROP", "ALTER",
-    "CREATE", "TRUNCATE", "GRANT", "REVOKE", "DENY", "INTO", "DECLARE",
-    "OPENROWSET", "OPENQUERY", "OPENDATASOURCE", "BULK", "DBCC", "BACKUP",
-    "RESTORE", "SHUTDOWN", "KILL", "USE", "WAITFOR", "RECONFIGURE",
-]
-# re.ASCII: \b and IGNORECASE are ASCII-only, as in sql-guard.ts (no `u` flag)
-# — `éDROP` holds DROP, and the Kelvin sign in `\u212aILL` is not K.
-_FORBIDDEN_RE = re.compile(r"\b(" + "|".join(_FORBIDDEN_KEYWORDS) + r")\b", re.IGNORECASE | re.ASCII)
-_FIRST_KEYWORD_RE = re.compile(rf"^{_WS}*([A-Za-z]+)\b", re.ASCII)
 _BODY_PARAM_RE = re.compile(r"(?<!@)@([A-Za-z_][A-Za-z0-9_]*)", re.ASCII)
+_AMBIGUOUS_EOL = {"\u000b", "\u000c", "\u0085", " ", " "}
 
 
-def strip_sql(sql: str) -> str:
-    out: list[str] = []
-    i, n = 0, len(sql)
+def _is_ascii_letter(c: str) -> bool:
+    return ("A" <= c <= "Z") or ("a" <= c <= "z")
+
+
+def _is_digit(c: str) -> bool:
+    return "0" <= c <= "9"
+
+
+def _is_hex_digit(c: str) -> bool:
+    return _is_digit(c) or ("A" <= c <= "F") or ("a" <= c <= "f")
+
+
+def _is_word_start(c: str) -> bool:
+    return _is_ascii_letter(c) or c == "_" or c == "@" or c == "#"
+
+
+def _is_word_part(c: str) -> bool:
+    return _is_word_start(c) or _is_digit(c) or c == "$"
+
+
+def _scan_delimited(sql: str, i: int, q: str) -> tuple[int, bool]:
+    n = len(sql)
     while i < n:
+        if sql[i] == q:
+            if i + 1 < n and sql[i + 1] == q:
+                i += 2
+                continue
+            return i + 1, True
+        i += 1
+    return n, False
+
+
+def tokenize_sql(sql: str) -> list[dict]:
+    out: list[dict] = []
+    n = len(sql)
+    i = 0
+    while i < n:
+        start = i
         c = sql[i]
         c2 = sql[i + 1] if i + 1 < n else ""
-        if c == "-" and c2 == "-":
-            while i < n and sql[i] != "\n":
+        flag = ""
+        if c in _WS_CHARS:
+            while i < n and sql[i] in _WS_CHARS:
                 i += 1
-            out.append(" ")
-            continue
-        if c == "/" and c2 == "*":
+            kind = "ws"
+        elif c == "-" and c2 == "-":
+            i += 2
+            while i < n and sql[i] != "\n" and sql[i] != "\r":
+                if sql[i] in _AMBIGUOUS_EOL:
+                    flag = "ambiguous"
+                i += 1
+            if i < n and sql[i] == "\r" and not (i + 1 < n and sql[i + 1] == "\n"):
+                flag = "ambiguous"
+            kind = "comment"
+        elif c == "/" and c2 == "*":
             depth = 1
             i += 2
             while i < n and depth > 0:
-                pair = sql[i:i + 2]
-                if pair == "/*":
+                if sql[i] == "/" and i + 1 < n and sql[i + 1] == "*":
                     depth += 1
                     i += 2
-                elif pair == "*/":
+                elif sql[i] == "*" and i + 1 < n and sql[i + 1] == "/":
                     depth -= 1
                     i += 2
                 else:
                     i += 1
-            out.append(" ")
-            continue
-        if c == "'":
-            i += 1
-            while i < n:
-                if sql[i:i + 2] == "''":
-                    i += 2
-                    continue
-                if sql[i] == "'":
+            if depth > 0:
+                flag = "unterminated"
+            kind = "comment"
+        elif c == "'" or ((c == "N" or c == "n") and c2 == "'"):
+            end, closed = _scan_delimited(sql, i + 1 if c == "'" else i + 2, "'")
+            i = end
+            if not closed:
+                flag = "unterminated"
+            kind = "string"
+        elif c == "[" or c == '"':
+            end, closed = _scan_delimited(sql, i + 1, "]" if c == "[" else '"')
+            i = end
+            if not closed:
+                flag = "unterminated"
+            kind = "qident"
+        elif _is_digit(c):
+            if c == "0" and (c2 == "x" or c2 == "X"):
+                i += 2
+                while i < n and _is_hex_digit(sql[i]):
                     i += 1
-                    break
-                i += 1
-            out.append(" ")
-            continue
-        if c == "[":
-            i += 1
-            while i < n and sql[i] != "]":
-                i += 1
-            if i < n:
-                i += 1
-            out.append(" ")
-            continue
-        if c == '"':
-            i += 1
-            while i < n:
-                if sql[i:i + 2] == '""':
-                    i += 2
-                    continue
-                if sql[i] == '"':
+            else:
+                while i < n and _is_digit(sql[i]):
                     i += 1
-                    break
+                if i < n and sql[i] == ".":
+                    i += 1
+                    while i < n and _is_digit(sql[i]):
+                        i += 1
+                if i < n and (sql[i] == "e" or sql[i] == "E"):
+                    j = i + 1
+                    if j < n and (sql[j] == "+" or sql[j] == "-"):
+                        j += 1
+                    if j < n and _is_digit(sql[j]):
+                        i = j
+                        while i < n and _is_digit(sql[i]):
+                            i += 1
+            kind = "number"
+        elif _is_word_start(c):
+            while i < n and _is_word_part(sql[i]):
                 i += 1
-            out.append(" ")
+            kind = "word"
+        else:
+            i += 1
+            kind = "punct" if ord(c) < 128 else "other"
+        out.append({"kind": kind, "text": sql[start:i], "flag": flag})
+    return out
+
+
+def strip_sql(sql: str) -> str:
+    return "".join(
+        " " if t["kind"] in ("comment", "string", "qident") else t["text"] for t in tokenize_sql(sql)
+    )
+
+
+_FORBIDDEN_KEYWORDS = [
+    # writes, DDL, DCL
+    "INSERT", "UPDATE", "DELETE", "MERGE", "TRUNCATE", "DROP", "CREATE", "ALTER",
+    "GRANT", "REVOKE", "DENY", "INTO", "BULK", "WRITETEXT", "UPDATETEXT", "READTEXT",
+    # execution, remote data
+    "EXEC", "EXECUTE", "OPENROWSET", "OPENQUERY", "OPENDATASOURCE",
+    # transaction / session control
+    "COMMIT", "ROLLBACK", "BEGIN", "SAVE", "SET", "DECLARE", "USE", "GO", "SETUSER", "REVERT",
+    # control flow
+    "IF", "WHILE", "BREAK", "CONTINUE", "RETURN", "GOTO", "WAITFOR", "PRINT", "RAISERROR", "THROW",
+    # cursors, service broker
+    "OPEN", "CLOSE", "DEALLOCATE", "RECEIVE", "SEND", "MOVE", "GET",
+    # server administration
+    "BACKUP", "RESTORE", "DBCC", "KILL", "SHUTDOWN", "RECONFIGURE", "CHECKPOINT",
+    "ENABLE", "DISABLE", "ADD", "LINENO",
+]
+_FORBIDDEN_SET = set(_FORBIDDEN_KEYWORDS)
+_CONTEXTUAL_KEYWORDS = {"SELECT", "WITH", "ELSE", "END", "FETCH", "CASE", "UNION", "EXCEPT", "INTERSECT"}
+_QUERY_PRECEDERS = {
+    "FROM", "JOIN", "APPLY", "IN", "EXISTS", "ANY", "ALL", "SOME", "SELECT", "WHERE", "AND", "OR",
+    "NOT", "ON", "WHEN", "THEN", "ELSE", "BY", "HAVING", "CASE", "DISTINCT", "TOP", "LIKE",
+    "BETWEEN", "IS", "OFFSET", "NEXT", "FIRST", "VALUES", "UNION", "EXCEPT", "INTERSECT",
+}
+_OPERATOR_PUNCT = {",", "=", "<", ">", "!", "+", "-", "*", "/", "%", "&", "|", "^", "~"}
+_WITH_FOLLOWERS = {"TIES", "ROLLUP", "CUBE"}
+_SECOND_STATEMENT = "body must be a single statement"
+
+# A node is {"tok": token} or {"kids": [nodes]}.
+
+
+def _word_of(node) -> str | None:
+    if node and "tok" in node and node["tok"]["kind"] == "word":
+        return node["tok"]["text"].upper()
+    return None
+
+
+def _is_punct(node, p: str) -> bool:
+    return bool(node) and "tok" in node and node["tok"]["kind"] == "punct" and node["tok"]["text"] == p
+
+
+def _node_at(nodes: list, i: int):
+    return nodes[i] if 0 <= i < len(nodes) else None
+
+
+def _is_query_group(node) -> bool:
+    if not node or "kids" not in node or len(node["kids"]) == 0:
+        return False
+    w = _word_of(node["kids"][0])
+    return w == "SELECT" or w == "WITH"
+
+
+def _wraps_query(node) -> bool:
+    if "kids" not in node:
+        return False
+    if _is_query_group(node):
+        return True
+    return len(node["kids"]) == 1 and _wraps_query(node["kids"][0])
+
+
+def _query_may_follow(prev) -> bool:
+    if prev is None:
+        return True
+    if "kids" in prev:
+        return False
+    if prev["tok"]["kind"] == "punct":
+        return prev["tok"]["text"] in _OPERATOR_PUNCT
+    w = _word_of(prev)
+    return w is not None and w in _QUERY_PRECEDERS
+
+
+def _check_group(node, prev) -> str | None:
+    kids = node["kids"]
+    if _wraps_query(node) and not _query_may_follow(prev):
+        return f"{_SECOND_STATEMENT} (a parenthesized query here would start a second statement)"
+    if _is_query_group(node):
+        return _check_query(kids)
+    return _scan_level(kids, 0, False)
+
+
+def _scan_level(nodes: list, start: int, is_query: bool) -> str | None:
+    case_depth = 0
+    saw_offset = False
+    expect_branch = False
+    prev = nodes[start - 1] if start > 0 else None
+    for i in range(start, len(nodes)):
+        node = nodes[i]
+        w = _word_of(node)
+        if expect_branch:
+            if w == "ALL" and _word_of(prev) == "UNION":
+                prev = node
+                continue
+            if w == "SELECT":
+                expect_branch = False
+                prev = node
+                continue
+            if _is_query_group(node):
+                r = _check_query(node["kids"])
+                if r:
+                    return r
+                expect_branch = False
+                prev = node
+                continue
+            return "UNION, EXCEPT and INTERSECT must be followed by SELECT or a parenthesized query"
+        if "kids" in node:
+            r = _check_group(node, prev)
+            if r:
+                return r
+            prev = node
             continue
-        out.append(c)
+        if w == "SELECT":
+            return f"{_SECOND_STATEMENT} (a second SELECT starts a new statement)"
+        elif w == "WITH":
+            nxt = _node_at(nodes, i + 1)
+            nw = _word_of(nxt)
+            if not (nxt and "kids" in nxt) and not (nw is not None and nw in _WITH_FOLLOWERS):
+                return f"{_SECOND_STATEMENT} (WITH may only open the query, or be followed by '(', TIES, ROLLUP or CUBE)"
+        elif w == "CASE":
+            case_depth += 1
+        elif w == "END":
+            if case_depth == 0:
+                return f"{_SECOND_STATEMENT} (END outside a CASE expression)"
+            case_depth -= 1
+        elif w == "ELSE":
+            if case_depth == 0:
+                return f"{_SECOND_STATEMENT} (ELSE outside a CASE expression)"
+        elif w == "OFFSET":
+            saw_offset = True
+        elif w == "FETCH":
+            pw = _word_of(prev)
+            nw = _word_of(_node_at(nodes, i + 1))
+            if not saw_offset or (pw != "ROW" and pw != "ROWS") or (nw != "NEXT" and nw != "FIRST"):
+                return f"{_SECOND_STATEMENT} (FETCH is only allowed as OFFSET … ROWS FETCH NEXT|FIRST …)"
+        elif w == "UNION" or w == "EXCEPT" or w == "INTERSECT":
+            if not is_query:
+                return f"{w} is only allowed between queries"
+            expect_branch = True
+        prev = node
+    if expect_branch:
+        return "UNION, EXCEPT and INTERSECT must be followed by SELECT or a parenthesized query"
+    if case_depth != 0:
+        return "CASE without a matching END"
+    return None
+
+
+def _parse_cte_list(nodes: list):
+    i = 1
+    if _word_of(_node_at(nodes, i)) == "XMLNAMESPACES":
         i += 1
-    return "".join(out)
+        decl = _node_at(nodes, i)
+        if not decl or "kids" not in decl or _wraps_query(decl):
+            return "WITH XMLNAMESPACES must be followed by a namespace list in parentheses"
+        r = _scan_level(decl["kids"], 0, False)
+        if r:
+            return r
+        i += 1
+        if not _is_punct(_node_at(nodes, i), ","):
+            return i
+        i += 1
+    while True:
+        name = _node_at(nodes, i)
+        name_word = _word_of(name)
+        named_by_qident = bool(name) and "tok" in name and name["tok"]["kind"] == "qident"
+        if not named_by_qident and (name_word is None or name_word in _CONTEXTUAL_KEYWORDS):
+            return "a WITH clause must name each common table expression"
+        i += 1
+        cols = _node_at(nodes, i)
+        if cols and "kids" in cols:
+            if _wraps_query(cols):
+                return "a common table expression's column list cannot be a query"
+            r = _scan_level(cols["kids"], 0, False)
+            if r:
+                return r
+            i += 1
+        if _word_of(_node_at(nodes, i)) != "AS":
+            return "a common table expression needs AS (query)"
+        i += 1
+        body = _node_at(nodes, i)
+        if not _is_query_group(body):
+            return "a common table expression's body must be a parenthesized query"
+        r = _check_query(body["kids"])
+        if r:
+            return r
+        i += 1
+        if not _is_punct(_node_at(nodes, i), ","):
+            return i
+        i += 1
+
+
+def _check_query(nodes: list) -> str | None:
+    i = 0
+    if _word_of(_node_at(nodes, 0)) == "WITH":
+        r = _parse_cte_list(nodes)
+        if isinstance(r, str):
+            return r
+        i = r
+        if _word_of(_node_at(nodes, i)) != "SELECT":
+            return "a WITH clause must be followed by SELECT"
+    if _word_of(_node_at(nodes, i)) != "SELECT":
+        return "body must start with SELECT or WITH"
+    return _scan_level(nodes, i + 1, True)
+
+
+def _build_tree(sig: list[dict]):
+    stack: list[list] = [[]]
+    for tok in sig:
+        if tok["kind"] == "punct" and tok["text"] == "(":
+            stack.append([])
+        elif tok["kind"] == "punct" and tok["text"] == ")":
+            if len(stack) == 1:
+                return None
+            kids = stack.pop()
+            stack[-1].append({"kids": kids})
+        else:
+            stack[-1].append({"tok": tok})
+    return stack[0] if len(stack) == 1 else None
+
+
+_UNTERMINATED_LABEL = {"comment": "block comment", "string": "string literal", "qident": "delimited identifier"}
 
 
 def check_single_select(body: str) -> tuple[bool, str | None]:
-    trimmed = _trim_ws(strip_sql(body))
-    if trimmed.endswith(";"):
-        trimmed = _trim_ws(trimmed[:-1])
-    if len(trimmed) == 0:
+    tokens = tokenize_sql(body)
+    for t in tokens:
+        if t["flag"] == "unterminated":
+            return False, f"body has an unterminated {_UNTERMINATED_LABEL[t['kind']]}"
+        if t["flag"] == "ambiguous":
+            return False, "body has a -- comment ending at an ambiguous line break (a bare CR, VT, FF, NEL, LS or PS)"
+    sig = [t for t in tokens if t["kind"] != "ws" and t["kind"] != "comment"]
+    last = sig[-1] if len(sig) > 0 else None
+    if last and last["kind"] == "punct" and last["text"] == ";":
+        sig = sig[:-1]
+    if len(sig) == 0:
         return False, "empty query body"
-    if ";" in trimmed:
-        return False, "body must be a single statement (unexpected ';')"
-    m = _FIRST_KEYWORD_RE.match(trimmed)
-    first_keyword = m.group(1).upper() if m else None
-    if first_keyword not in ("SELECT", "WITH"):
+    if any(t["kind"] == "punct" and t["text"] == ";" for t in sig):
+        return False, f"{_SECOND_STATEMENT} (unexpected ';')"
+    first = sig[0]["text"].upper() if sig[0]["kind"] == "word" else None
+    if first != "SELECT" and first != "WITH":
         return False, "body must start with SELECT or WITH"
-    fm = _FORBIDDEN_RE.search(trimmed)
-    if fm:
-        return False, f"body contains a forbidden keyword: {fm.group(1).upper()}"
-    return True, None
+    for t in sig:
+        if t["kind"] == "word" and t["text"].upper() in _FORBIDDEN_SET:
+            return False, f"body contains a forbidden keyword: {t['text'].upper()}"
+    tree = _build_tree(sig)
+    if tree is None:
+        return False, "body has unbalanced parentheses"
+    reason = _check_query(tree)
+    return (True, None) if reason is None else (False, reason)
 
 
 # ── Locking / isolation hints (SRC-15, mirrors sql-guard.ts checkNoLockingHints;
