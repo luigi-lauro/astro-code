@@ -997,6 +997,35 @@ def check_single_select(body: str) -> tuple[bool, str | None]:
     return True, None
 
 
+# ── Locking / isolation hints (SRC-15, mirrors sql-guard.ts checkNoLockingHints;
+# astro phase 104 r2, ADR-019) ────────────────────────────────────────────
+# Every source query runs READ COMMITTED + SET LOCK_TIMEOUT inside
+# BEGIN TRAN … ROLLBACK; a table hint (WITH (NOLOCK), legacy (NOLOCK),
+# READUNCOMMITTED, READPAST, …) or an isolation change (SET TRANSACTION
+# ISOLATION LEVEL READ UNCOMMITTED|SNAPSHOT, legal after a SELECT with no ';')
+# would defeat it. Whole-word, ASCII case-insensitive, on strip_sql() output:
+# comments, string literals and [bracketed]/"quoted" identifiers never match.
+
+_LOCKING_HINT_KEYWORDS = [
+    "NOLOCK", "READUNCOMMITTED", "READCOMMITTEDLOCK", "REPEATABLEREAD",
+    "SERIALIZABLE", "SNAPSHOT", "UPDLOCK", "XLOCK", "TABLOCKX", "TABLOCK",
+    "PAGLOCK", "ROWLOCK", "READPAST", "HOLDLOCK", "NOWAIT",
+]
+_LOCKING_HINT_RE = re.compile(
+    rf"\b(?:ISOLATION{_WS}+LEVEL|READ{_WS}+UNCOMMITTED|" + "|".join(_LOCKING_HINT_KEYWORDS) + r")\b",
+    re.IGNORECASE | re.ASCII,
+)
+_WS_RUN_RE = re.compile(rf"{_WS}+")
+
+
+def check_no_locking_hints(body: str) -> tuple[bool, str | None]:
+    m = _LOCKING_HINT_RE.search(strip_sql(body))
+    if m:
+        hint = _WS_RUN_RE.sub(" ", m.group(0)).upper()
+        return False, f"body contains a locking/isolation hint: {hint}"
+    return True, None
+
+
 def scan_body_params(body: str) -> list[str]:
     stripped = strip_sql(body)
     seen: set[str] = set()
@@ -1217,6 +1246,10 @@ def check_named_query(source_id: str, file_name: str, text: str) -> tuple[list[t
     guard_ok, guard_reason = check_single_select(body)
     if not guard_ok:
         err("SRC-13", guard_reason or "body is not a single SELECT")
+
+    hint_ok, hint_reason = check_no_locking_hints(body)
+    if not hint_ok:
+        err("SRC-15", hint_reason or "body contains a locking/isolation hint")
 
     raw_body_params = scan_body_params(body)
     body_param_keys = {p.lower() for p in raw_body_params}

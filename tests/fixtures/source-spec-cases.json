@@ -808,6 +808,103 @@
       }
     },
     {
+      "name": "body-hint-with-nolock",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WITH (NOLOCK) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-legacy-nolock",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders (NOLOCK) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-nolock-lowercase",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nselect OrderId, Total from dbo.Orders with (nolock) where CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-readuncommitted",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WITH (READUNCOMMITTED) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-readpast",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WITH (READPAST) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-set-isolation-read-uncommitted",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-set-isolation-snapshot",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\nset transaction isolation level snapshot\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-in-comment-ok",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n-- never WITH (NOLOCK) here\nSELECT OrderId, Total FROM dbo.Orders /* READ UNCOMMITTED, SNAPSHOT */ WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "body-hint-in-string-ok",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 'WITH (NOLOCK)' <> 'READ UNCOMMITTED'\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
       "name": "max-rows-zero",
       "criteria": "C14",
       "files": {

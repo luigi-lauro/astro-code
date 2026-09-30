@@ -238,6 +238,7 @@ Every rejection names the check ID plus the source id, file, param or column inv
 | SRC-12 | FAIL | Bad `@max_rows` (not a positive integer, duplicated) |
 | SRC-13 | FAIL | Body is not a single `SELECT`/`WITH…SELECT` |
 | SRC-14 | FAIL | `adhoc: false` on a source with zero named queries |
+| SRC-15 | FAIL | Body carries a locking/isolation hint (`WITH (NOLOCK)`, `(NOLOCK)`, `READUNCOMMITTED`, `READPAST`, `UPDLOCK`, …) or `SET TRANSACTION ISOLATION LEVEL` — queries always run READ COMMITTED. Comments and string literals are ignored; a column named like a hint must be bracketed (`[Snapshot]`) |
 
 ## The recipe (`src/recipes/<id>.yaml`)
 

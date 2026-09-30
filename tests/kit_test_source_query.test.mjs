@@ -174,6 +174,32 @@ test('SRC-13: body is not a single SELECT', { skip: !hasPython }, () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+for (const [label, body] of [
+  ['WITH (NOLOCK)', 'SELECT OrderId, Total FROM dbo.Orders WITH (NOLOCK) WHERE CustomerId = @CustomerId\n'],
+  ['legacy (NOLOCK)', 'SELECT OrderId, Total FROM dbo.Orders (nolock) WHERE CustomerId = @CustomerId\n'],
+  ['READUNCOMMITTED', 'SELECT OrderId, Total FROM dbo.Orders WITH (READUNCOMMITTED) WHERE CustomerId = @CustomerId\n'],
+  ['READPAST', 'SELECT OrderId, Total FROM dbo.Orders WITH (READPAST) WHERE CustomerId = @CustomerId\n'],
+  ['SET TRANSACTION ISOLATION LEVEL SNAPSHOT', 'SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId SET TRANSACTION ISOLATION LEVEL SNAPSHOT\n'],
+]) {
+  test(`SRC-15: body carries a locking/isolation hint (${label}) (phase 104 r2)`, { skip: !hasPython }, () => {
+    const dir = scratchKit(BASE_QUERY.replace('SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n', body));
+    assertCheck(runKitTest(dir), 'SRC-15');
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
+test('SRC-15: a hint only inside a comment or string literal passes (phase 104 r2)', { skip: !hasPython }, () => {
+  const dir = scratchKit(
+    BASE_QUERY.replace(
+      'SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n',
+      "-- never WITH (NOLOCK)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 'NOLOCK' <> '' /* READ UNCOMMITTED */\n",
+    ),
+  );
+  const res = runKitTest(dir);
+  assert.equal(res.status, 0, res.out);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test('SRC-12: bad @max_rows', { skip: !hasPython }, () => {
   const dir = scratchKit(BASE_QUERY.replace('-- @returns', '-- @max_rows 0\n-- @returns'));
   assertCheck(runKitTest(dir), 'SRC-12');
