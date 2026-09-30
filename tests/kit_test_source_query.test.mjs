@@ -180,6 +180,31 @@ print("OK")
   assert.equal(res.status, 0, res.stdout + res.stderr);
 });
 
+test('tokenize_sql ends numeric literals where SQL Server does and flags an ambiguous end (phase 104 r4)', { skip: !hasPython }, () => {
+  const script = `
+import sys
+sys.path.insert(0, ${JSON.stringify(TOOLS_DIR)})
+import kit_test
+def sig(sql):
+    return [[t["kind"], t["text"], t["flag"]] for t in kit_test.tokenize_sql(sql) if t["kind"] != "ws"]
+assert sig("SELECT 1eCOMMIT") == [["word", "SELECT", ""], ["number", "1e", "ambiguous"], ["word", "COMMIT", ""]], sig("SELECT 1eCOMMIT")
+assert sig("SELECT .5eBEGIN") == [["word", "SELECT", ""], ["number", ".5e", "ambiguous"], ["word", "BEGIN", ""]]
+assert sig("1E+ 1e-5 1. 1e") == [["number", "1E+", ""], ["number", "1e-5", ""], ["number", "1.", ""], ["number", "1e", ""]]
+assert sig("1COMMIT") == [["number", "1", "ambiguous"], ["word", "COMMIT", ""]]
+assert sig("1e--x")[0] == ["number", "1e-", "ambiguous"]
+assert sig("0x 0xAB $1.50 $.5 $ \\u20ac5") == [
+    ["number", "0x", ""], ["number", "0xAB", ""], ["number", "$1.50", ""], ["number", "$.5", ""], ["number", "$", ""], ["number", "\\u20ac5", ""],
+]
+assert sig("0xBEGIN") == [["number", "0xBE", "ambiguous"], ["word", "GIN", ""]]
+assert sig("$COMMIT") == [["number", "$", "ambiguous"], ["word", "COMMIT", ""]]
+ok, reason = kit_test.check_single_select("SELECT 1eCOMMIT")
+assert not ok and "numeric literal" in reason, reason
+print("OK")
+`;
+  const res = spawnSync('python3', ['-c', script], { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+});
+
 // ── End-to-end via kit_test.py CLI, mirroring the C11-C14 rejection matrix ─
 
 test('the base query passes cleanly', { skip: !hasPython }, () => {

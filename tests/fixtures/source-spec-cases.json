@@ -3880,7 +3880,7 @@
     },
     {
       "sql": "SELECT a FROM t OPTION (USE HINT('DISABLE_OPTIMIZER_ROWGOAL'))",
-      "ok": false
+      "ok": true
     },
     {
       "sql": "SELECT 1 AS Value FOR UPDATE",
@@ -3912,7 +3912,7 @@
     },
     {
       "sql": "(SELECT 1)",
-      "ok": false
+      "ok": true
     },
     {
       "sql": "UPDATE t SET a = 1",
@@ -3992,6 +3992,270 @@
     },
     {
       "sql": "SELECTX 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1e AS Value",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1e + 1 AS v, 1E-5 AS w, 1.e5 AS x, .5E+2 AS y, 1. AS z",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 0x AS b, 0xABCDEF AS c",
+      "ok": true
+    },
+    {
+      "sql": "SELECT $1.50 AS m, $.5 AS n, \u00a5100 AS y, \u20ac5 AS e, $ AS z",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (RECOMPILE, USE HINT('A', 'B'))",
+      "ok": true
+    },
+    {
+      "sql": "SELECT o.Open, o.Close, m.Move, m.Send, m.Get, t.Commit, x.[Set] FROM o JOIN m ON m.id = o.id JOIN t ON t.id = o.id JOIN x ON x.id = o.id",
+      "ok": true
+    },
+    {
+      "sql": "SELECT dbo.Orders.Close, [o].Open, \"o\".Begin, o . Save FROM dbo.Orders JOIN o ON 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM db..Open",
+      "ok": true
+    },
+    {
+      "sql": "SELECT t.Select, t.End, t.Else, t.Fetch FROM t",
+      "ok": true
+    },
+    {
+      "sql": "(SELECT a FROM t) UNION ALL (SELECT b FROM u)",
+      "ok": true
+    },
+    {
+      "sql": "((SELECT 1 AS a))",
+      "ok": true
+    },
+    {
+      "sql": "(SELECT a FROM t) ORDER BY a",
+      "ok": true
+    },
+    {
+      "sql": "(SELECT a FROM t) UNION SELECT b FROM u;",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t LEFT MERGE JOIN u ON u.id = t.id",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t LEFT OUTER MERGE JOIN u ON u.id = t.id RIGHT MERGE JOIN v ON 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t INNER MERGE JOIN u ON u.id = t.id FULL OUTER MERGE JOIN v ON 1 = 1 RIGHT OUTER MERGE JOIN w ON 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t JOIN u ON u.id = t.id OPTION (MERGE JOIN)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t JOIN u ON 1 = 1 OPTION (HASH JOIN, MERGE JOIN, MAXDOP 1)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1eCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1eROLLBACK",
+      "ok": false
+    },
+    {
+      "sql": "SELECT .5eBEGIN TRAN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value, 2eSELECT 2 AS Value",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1eCOMMIT;",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1E+COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1e-COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1.eCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1.5EEXEC sp_who",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1EXEC sp_who",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1EXECUTE ('SELECT 1')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1_COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1@COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1$COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1N'x' COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1e--'\nCOMMIT --'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0xCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0xBEGIN TRAN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0x COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0x1gCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT $1COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT $.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT $1.5eCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \u00a5COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \u20ac1COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \u20ac.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT (SELECT 1).COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value FROM t WHERE a = 1.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE x = t.a COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t MERGE JOIN u ON 1 = 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t LEFT MERGE u USING v ON 1 = 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value MERGE JOIN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (MERGE t USING u ON 1 = 1)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value USE HINT('x')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (USE master)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (RECOMPILE USE HINT('x'))",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (USE HINT('x'))",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (MAXDOP (USE HINT('x')))",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) (SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "((SELECT 1) COMMIT)",
+      "ok": false
+    },
+    {
+      "sql": "(1)",
+      "ok": false
+    },
+    {
+      "sql": "(COMMIT)",
+      "ok": false
+    },
+    {
+      "sql": "()",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) UNION COMMIT",
       "ok": false
     }
   ]

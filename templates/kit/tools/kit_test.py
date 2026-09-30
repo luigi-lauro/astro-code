@@ -914,7 +914,13 @@ def parse_default_literal(sql_type_token, literal) -> tuple[bool, str]:
 #     `""`; an unterminated one is `unterminated`;
 #   - word: [A-Za-z_@#][A-Za-z0-9_@#$]* (ASCII only — `éDROP` holds DROP, the
 #     Kelvin sign is not K); `$` never starts a word;
-#   - number: 0x[hex]* or digits[.digits][e[+-]digits] (`1ELSE` is 1, ELSE);
+#   - number (astro phase 104 r4): lexed exactly as T-SQL does — `0x[hex]*`,
+#     or `[digits][.][digits][(e|E)[+|-][digits]]` starting at a digit or at a
+#     `.` before a digit, EMPTY exponent allowed (`1eCOMMIT` is `1e`, COMMIT),
+#     or money: a currency symbol (_is_currency_symbol) then
+#     `[digits][.][digits]`. A literal followed by a word character, or an
+#     exponent `-` followed by `-`, is `ambiguous` (SQL Server's split could
+#     not be confirmed and one reading hides a keyword) and the guard rejects it;
 #   - punct: any other single ASCII char; other: any other single char.
 
 _BODY_PARAM_RE = re.compile(r"(?<!@)@([A-Za-z_][A-Za-z0-9_]*)", re.ASCII)
@@ -931,6 +937,18 @@ def _is_digit(c: str) -> bool:
 
 def _is_hex_digit(c: str) -> bool:
     return _is_digit(c) or ("A" <= c <= "F") or ("a" <= c <= "f")
+
+
+_CURRENCY_EXTRA = {
+    "\u058f", "\u060b", "\u09f2", "\u09f3", "\u09fb", "\u0af1", "\u0bf9", "\u0e3f", "\u17db",
+    "\ua838", "\ufdfc", "\ufe69", "\uff04", "\uffe0", "\uffe1", "\uffe5", "\uffe6",
+}
+
+
+def _is_currency_symbol(c: str) -> bool:
+    if c == "$" or ("\u00a2" <= c <= "\u00a5") or ("\u20a0" <= c <= "\u20cf"):
+        return True
+    return c in _CURRENCY_EXTRA
 
 
 def _is_word_start(c: str) -> bool:
@@ -1002,26 +1020,31 @@ def tokenize_sql(sql: str) -> list[dict]:
             if not closed:
                 flag = "unterminated"
             kind = "qident"
-        elif _is_digit(c):
+        elif _is_digit(c) or (c == "." and _is_digit(c2)) or _is_currency_symbol(c):
             if c == "0" and (c2 == "x" or c2 == "X"):
                 i += 2
                 while i < n and _is_hex_digit(sql[i]):
                     i += 1
             else:
+                money = _is_currency_symbol(c)
+                if money:
+                    i += 1
                 while i < n and _is_digit(sql[i]):
                     i += 1
                 if i < n and sql[i] == ".":
                     i += 1
                     while i < n and _is_digit(sql[i]):
                         i += 1
-                if i < n and (sql[i] == "e" or sql[i] == "E"):
-                    j = i + 1
-                    if j < n and (sql[j] == "+" or sql[j] == "-"):
-                        j += 1
-                    if j < n and _is_digit(sql[j]):
-                        i = j
-                        while i < n and _is_digit(sql[i]):
-                            i += 1
+                if not money and i < n and (sql[i] == "e" or sql[i] == "E"):
+                    i += 1
+                    if i < n and (sql[i] == "+" or sql[i] == "-"):
+                        if sql[i] == "-" and i + 1 < n and sql[i + 1] == "-":
+                            flag = "ambiguous"
+                        i += 1
+                    while i < n and _is_digit(sql[i]):
+                        i += 1
+            if i < n and _is_word_part(sql[i]):
+                flag = "ambiguous"
             kind = "number"
         elif _is_word_start(c):
             while i < n and _is_word_part(sql[i]):
@@ -1066,6 +1089,60 @@ _QUERY_PRECEDERS = {
 _OPERATOR_PUNCT = {",", "=", "<", ">", "!", "+", "-", "*", "/", "%", "&", "|", "^", "~"}
 _WITH_FOLLOWERS = {"TIES", "ROLLUP", "CUBE"}
 _SECOND_STATEMENT = "body must be a single statement"
+_MERGE_JOIN_PRECEDERS = {"LEFT", "RIGHT", "INNER", "FULL", "OUTER"}
+
+
+def _sig_word(sig: list, k: int) -> str | None:
+    return sig[k]["text"].upper() if 0 <= k < len(sig) and sig[k]["kind"] == "word" else None
+
+
+def _sig_punct(sig: list, k: int, p: str) -> bool:
+    return 0 <= k < len(sig) and sig[k]["kind"] == "punct" and sig[k]["text"] == p
+
+
+def _is_name_word(t: dict) -> bool:
+    if t["kind"] == "qident":
+        return True
+    if t["kind"] != "word":
+        return False
+    w = t["text"].upper()
+    return w not in _FORBIDDEN_SET and w not in _CONTEXTUAL_KEYWORDS and w not in _QUERY_PRECEDERS
+
+
+def _resolve_names(sig: list):
+    """sig with every word after a name-qualifying '.' made a delimited identifier, plus USE/MERGE hint positions."""
+    toks = list(sig)
+    hints: set = set()
+    openers: list = []
+    for k in range(len(toks)):
+        t = toks[k]
+        if t["kind"] == "punct" and t["text"] == "(":
+            openers.append(_sig_word(toks, k - 1))
+            continue
+        if t["kind"] == "punct" and t["text"] == ")":
+            if openers:
+                openers.pop()
+            continue
+        if t["kind"] != "word":
+            continue
+        if _sig_punct(toks, k - 1, "."):
+            d = k - 1
+            while _sig_punct(toks, d, "."):
+                d -= 1
+            if d >= 0 and _is_name_word(toks[d]):
+                toks[k] = {"kind": "qident", "text": t["text"], "flag": ""}
+                continue
+        w = t["text"].upper()
+        in_option = len(openers) > 0 and openers[-1] == "OPTION" and (
+            _sig_punct(toks, k - 1, "(") or _sig_punct(toks, k - 1, ",")
+        )
+        if w == "USE" and in_option and _sig_word(toks, k + 1) == "HINT" and _sig_punct(toks, k + 2, "("):
+            hints.add(k)
+        if w == "MERGE" and _sig_word(toks, k + 1) == "JOIN":
+            pw = _sig_word(toks, k - 1)
+            if in_option or (pw is not None and pw in _MERGE_JOIN_PRECEDERS):
+                hints.add(k)
+    return toks, hints
 
 # A node is {"tok": token} or {"kids": [nodes]}.
 
@@ -1230,6 +1307,13 @@ def _parse_cte_list(nodes: list):
 
 def _check_query(nodes: list) -> str | None:
     i = 0
+    if len(nodes) > 0 and "kids" in nodes[0]:
+        if not _wraps_query(nodes[0]):
+            return "body must start with SELECT, WITH or a parenthesized query"
+        r = _check_group(nodes[0], None)
+        if r:
+            return r
+        return _scan_level(nodes, 1, True)
     if _word_of(_node_at(nodes, 0)) == "WITH":
         r = _parse_cte_list(nodes)
         if isinstance(r, str):
@@ -1265,6 +1349,11 @@ def check_single_select(body: str) -> tuple[bool, str | None]:
     for t in tokens:
         if t["flag"] == "unterminated":
             return False, f"body has an unterminated {_UNTERMINATED_LABEL[t['kind']]}"
+        if t["flag"] == "ambiguous" and t["kind"] == "number":
+            return False, (
+                f"body has a numeric literal whose end is ambiguous ('{t['text']}' followed by a letter, "
+                "digit, '_', '@', '#', '$' or '-'): separate it with a space"
+            )
         if t["flag"] == "ambiguous":
             return False, "body has a -- comment ending at an ambiguous line break (a bare CR, VT, FF, NEL, LS or PS)"
     sig = [t for t in tokens if t["kind"] != "ws" and t["kind"] != "comment"]
@@ -1276,10 +1365,11 @@ def check_single_select(body: str) -> tuple[bool, str | None]:
     if any(t["kind"] == "punct" and t["text"] == ";" for t in sig):
         return False, f"{_SECOND_STATEMENT} (unexpected ';')"
     first = sig[0]["text"].upper() if sig[0]["kind"] == "word" else None
-    if first != "SELECT" and first != "WITH":
+    if first != "SELECT" and first != "WITH" and not _sig_punct(sig, 0, "("):
         return False, "body must start with SELECT or WITH"
-    for t in sig:
-        if t["kind"] == "word" and t["text"].upper() in _FORBIDDEN_SET:
+    sig, hints = _resolve_names(sig)
+    for k, t in enumerate(sig):
+        if t["kind"] == "word" and t["text"].upper() in _FORBIDDEN_SET and k not in hints:
             return False, f"body contains a forbidden keyword: {t['text'].upper()}"
     tree = _build_tree(sig)
     if tree is None:
