@@ -118,3 +118,6 @@ docs.
 ```bash
 npm test     # engine units + a real bare-remote registry/canon integration test
 ```
+
+Contributions follow git-flow — PRs target `develop`, never `main`. See
+[`CONTRIBUTING.md`](./CONTRIBUTING.md).
