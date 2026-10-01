@@ -1818,6 +1818,14 @@ def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> 
         sys.path.insert(0, str(this_dir))
     import _astro_client as astro  # noqa: PLC0415 — intentionally lazy (C9)
 
+    # Every report line goes through the client's redaction, like its own
+    # log()/die(): an instance error may echo a password back (C9).
+    def _fail(check_id: str, msg: str) -> None:
+        rep.fail("live", check_id, astro.redact(msg, astro._SECRETS))
+
+    def _ok(check_id: str, msg: str) -> None:
+        rep.ok("live", check_id, astro.redact(msg, astro._SECRETS))
+
     # `--json` must emit exactly one JSON document on stdout; `_astro_client`'s
     # log()/ok() progress lines (e.g. "Logging in…") are swallowed in that
     # mode. `die()`'s own messages go to stderr regardless, so a real failure
@@ -1838,12 +1846,12 @@ def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> 
         src_dir = root / "src" / "sources" / source_id
         schema_path = src_dir / "schema.json"
         if not schema_path.is_file():
-            rep.fail("live", "SRC-20", f"{source_id}: schema.json missing — cannot run the live check")
+            _fail("SRC-20", f"{source_id}: schema.json missing — cannot run the live check")
             continue
         try:
             data = load_source_schema_json(schema_path.read_bytes())
         except (SourceSchemaParseError, ValueError, OSError) as exc:
-            rep.fail("live", "SRC-20", f"{source_id}: schema.json: {exc}")
+            _fail("SRC-20", f"{source_id}: schema.json: {exc}")
             continue
         tables = data.get("tables") if isinstance(data, dict) else None
         tables = tables if isinstance(tables, dict) else {}
@@ -1860,7 +1868,7 @@ def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> 
                     try:
                         queries.append({"file": p.name, "text": p.read_text(encoding="utf-8")})
                     except OSError as exc:
-                        rep.fail("live", "SRC-20", f"{source_id}: {p.name}: cannot be read: {exc}")
+                        _fail("SRC-20", f"{source_id}: {p.name}: cannot be read: {exc}")
 
         body: dict = {"include": include, "schema": data, "queries": queries}
         connection = astro.one_off_from_env(source_id)
@@ -1874,25 +1882,25 @@ def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> 
 
         if status != 200:
             message = (isinstance(resp, dict) and (resp.get("message") or resp.get("error"))) or f"HTTP {status}"
-            rep.fail("live", "SRC-20", f"{source_id}: live introspection failed: {message}")
+            _fail("SRC-20", f"{source_id}: live introspection failed: {message}")
             continue
-        rep.ok("live", "SRC-20", f"{source_id}: live introspection succeeded")
+        _ok("SRC-20", f"{source_id}: live introspection succeeded")
 
         drift = resp.get("drift") if isinstance(resp, dict) else None
         drift = drift if isinstance(drift, dict) else {}
 
         missing_tables = drift.get("missingTables") or []
         if missing_tables:
-            rep.fail("live", "SRC-21", f"{source_id}: documented table(s) missing from the database: {', '.join(missing_tables)}")
+            _fail("SRC-21", f"{source_id}: documented table(s) missing from the database: {', '.join(missing_tables)}")
         else:
-            rep.ok("live", "SRC-21", f"{source_id}: every documented table is present")
+            _ok("SRC-21", f"{source_id}: every documented table is present")
 
         missing_columns = drift.get("missingColumns") or []
         if missing_columns:
             names = ", ".join(f"{c.get('table')}.{c.get('column')}" for c in missing_columns)
-            rep.fail("live", "SRC-22", f"{source_id}: documented column(s) missing: {names}")
+            _fail("SRC-22", f"{source_id}: documented column(s) missing: {names}")
         else:
-            rep.ok("live", "SRC-22", f"{source_id}: every documented column is present")
+            _ok("SRC-22", f"{source_id}: every documented column is present")
 
         type_changes = drift.get("typeChanges") or []
         if type_changes:
@@ -1900,9 +1908,9 @@ def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> 
                 f"{c.get('table')}.{c.get('column')} {c.get('documented')} -> {c.get('actual')}"
                 for c in type_changes
             )
-            rep.fail("live", "SRC-23", f"{source_id}: column type change(s): {parts}")
+            _fail("SRC-23", f"{source_id}: column type change(s): {parts}")
         else:
-            rep.ok("live", "SRC-23", f"{source_id}: no column type changes")
+            _ok("SRC-23", f"{source_id}: no column type changes")
 
         query_checks = resp.get("queryChecks") if isinstance(resp, dict) else None
         query_checks = query_checks if isinstance(query_checks, list) else []
@@ -1915,9 +1923,9 @@ def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> 
                     or q.get("error")
                     or "mismatch"
                 )
-                rep.fail("live", "SRC-24", f"{source_id}: {q.get('file')}: @returns mismatch — {detail}")
+                _fail("SRC-24", f"{source_id}: {q.get('file')}: @returns mismatch — {detail}")
         else:
-            rep.ok("live", "SRC-24", f"{source_id}: every named query's @returns matches")
+            _ok("SRC-24", f"{source_id}: every named query's @returns matches")
 
 
 def load_recipe(path: Path) -> tuple[dict, str]:

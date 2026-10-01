@@ -183,3 +183,43 @@ test('C10: --live sends documented table keys in a form the server can match exa
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('C9: --live redacts a source password the instance echoes back in an error', { skip: !hasPython }, async () => {
+  const dir = scratchKit();
+  const canary = 'Src-Canary-66';
+  try {
+    writeSchema(dir, { version: 1, tables: { 'dbo.T': { purpose: 'p', kind: 'table', columns: { Id: { meaning: 'm', type: 'int' } } } } });
+    const stub = await startStubServer((req) => {
+      if (req.method === 'POST' && req.path === '/api/auth/login') return { status: 200, body: { accessToken: 'tok' } };
+      if (req.path === INTROSPECT) {
+        const pw = JSON.parse(req.body).connection?.password;
+        return { status: 422, body: { error: 'unsafe_writable', message: `login ro with password ${pw} can write` } };
+      }
+      return { status: 404, body: { error: 'not_found' } };
+    });
+    try {
+      for (const extra of [[], ['--json']]) {
+        const res = await runPython(['tools/kit_test.py', '--skip-parity', '--live', ...extra], {
+          cwd: dir,
+          env: {
+            ...CLEAN_ENV,
+            ASTRO_BASE_URL: stub.url,
+            ASTRO_ADMIN_EMAIL: 'a@example.com',
+            ASTRO_ADMIN_PASSWORD: 'pw',
+            ASTRO_SOURCE_ERP_HOST: 'db.example',
+            ASTRO_SOURCE_ERP_USERNAME: 'ro',
+            ASTRO_SOURCE_ERP_PASSWORD: canary,
+          },
+        });
+        const out = res.stdout + res.stderr;
+        assert.match(out, /SRC-20/, out);
+        assert.ok(!out.includes(canary), out);
+        assert.match(out, /password \*\*\* can write/, out);
+      }
+    } finally {
+      await stub.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
