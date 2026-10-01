@@ -112,8 +112,43 @@ An `--execute` run is agent-driven and therefore nondeterministic. Judge it on
 **declared outputs existing**, never on the prose matching a previous run — for
 output-level determinism use `parity_check.py` (Tier 1), which is what it's for.
 
+## Live source checks (`--live`)
+
+`--live` is **opt-in** and separate from Tier 2/3: it calls a running Astro instance's
+introspection endpoint for each declared data source and reports drift between
+`src/sources/<id>/schema.json` and the real database, plus named-query `@returns`
+mismatches — the two things `/astro-kit-source` can't catch on its own between runs.
+Plain `kit_test.py` (no `--live`) makes no network call and is unchanged.
+
+Credentials come from env vars only, the same ones `/astro-kit-source` uses — never
+argv:
+- `ASTRO_BASE_URL`, `ASTRO_ADMIN_EMAIL`, `ASTRO_ADMIN_PASSWORD` for the instance call;
+- for a source with no binding yet, the one-off `ASTRO_SOURCE_<ID>_HOST`, `_PORT`,
+  `_DATABASE`, `_USER`, `_PASSWORD`, `_TRUST_SERVER_CERTIFICATE` (`<ID>` = the source
+  id upper-cased, non-alphanumerics turned into `_`).
+
+```bash
+ASTRO_ADMIN_PASSWORD='<password>' python3 tools/kit_test.py --live --base <instance URL>
+```
+
+New failures reported under the `live` group:
+
+| Id | Fails when |
+|---|---|
+| `SRC-20` | the live call failed (auth, refusal, network) — env var names are named, never values |
+| `SRC-21` | a documented table is missing in the database |
+| `SRC-22` | a documented column is missing |
+| `SRC-23` | a column's type family changed (documented → actual) |
+| `SRC-24` | a named query's `@returns` doesn't match `sp_describe_first_result_set` |
+
+A width-only change within one type family (e.g. `varchar(50)` → `varchar(100)`) is
+not a failure. Missing env vars for `--live` exit `2` (usage), same as any other
+missing precondition.
+
 ## When to suggest this
 
 Proactively run or suggest `/astro-kit-test` whenever kit work has just changed the
 manifest, a recipe, `EXAMPLES.md`, or a script — and always before `/astro-kit-publish`.
-It is fast enough that there is no reason to batch it to the end.
+It is fast enough that there is no reason to batch it to the end. Suggest `--live`
+after `/astro-kit-source` touches a source, to confirm schema.json still matches the
+real database.
