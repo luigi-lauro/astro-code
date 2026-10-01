@@ -45,7 +45,9 @@ Wire up (or refresh) astro-code's rich statusline for this machine, then show th
      (`pay-now`). It is not a count — filing more debt pushes it *down* — so the
      segment appearing at all is the signal. `/astro-debt` explains the number.
    - **⎇ branch** — current git branch
-4. Tell the user the line takes effect on the **next** statusline repaint (a
+4. Mention that each gauge — `ctx`, `5h`, `7d`, `cap` — can show its bar, its percent or
+   both: `/astro-config statusline`, or `ac statusline gauges <gauge|all> <both|bar|percent>`.
+5. Tell the user the line takes effect on the **next** statusline repaint (a
    keystroke or the next turn), but the busy/idle **dot** only starts toggling once
    Claude Code reloads `settings.json` — i.e. **restart Claude Code** (or start a
    new session) after the first install so the turn-boundary hooks are live.

@@ -67,6 +67,7 @@ import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
 import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames } from '../lib/install.mjs';
 import { readAgentTools, updateAgentTools } from '../lib/agenttools.mjs';
+import { GAUGES, GAUGE_MODES, readGaugeModes, setGaugeMode } from '../lib/statuslinegauges.mjs';
 import { applyTune, undoTune, tuneTarget, UNTUNABLE } from '../lib/tune.mjs';
 import { collectStats } from '../lib/stats.mjs';
 import { writeAgentsMd } from '../lib/agentsmd.mjs';
@@ -162,7 +163,9 @@ const ALLOWED_FLAGS = {
   'agent-tools clear': [],
   // #63 — the text is an argument, not a flag: `--note` (what `backlog add` takes) used to
   // be ignored here and the call read the note instead of writing it.
-  'backlog note': [],
+  'backlog note': ['append', 'replace'],
+  // #106 — a plain write that would drop an existing note is refused; these say what to do.
+  'phase note': ['append', 'replace'],
   'milestone complete': ['force'],
   // Phase 23 (P5) — read-only, but still allowlisted: a typo'd flag on the sweep's
   // own read must not silently degrade into the human-readable form when `--json`
@@ -208,6 +211,14 @@ function checkFlags(key, flags) {
   const got = unknown.map((f) => `--${f}`).join(', ');
   const ok = allowed.length ? `accepted: ${allowed.map((f) => `--${f}`).join(', ')}` : 'this command takes no flags';
   die(`unknown flag${unknown.length > 1 ? 's' : ''} for \`ac ${key}\`: ${got} (${ok})`);
+}
+// #106 — `ac phase note` / `ac backlog note` text and write mode. The flags are booleans,
+// but the parser hands a flag the next word as its value, so `--append "<text>"` and
+// `"<text>" --append` must both read the same.
+function noteWrite(pos, flags) {
+  const text = [...pos.slice(2), ...['append', 'replace'].map((f) => flags[f]).filter((v) => typeof v === 'string')].join(' ');
+  return { text, write: pos.length > 2 || text !== '' || flags.append !== undefined || flags.replace !== undefined,
+    opts: { append: flags.append !== undefined, replace: flags.replace !== undefined } };
 }
 // #37 — work may only be put into a milestone the registry knows: planned or active. An
 // unclaimed number is how a phase used to reference a milestone nobody had reserved (#32's
@@ -377,7 +388,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac backlog list [--all] [--json]    open ideas (oldest first); --all includes archived/promoted
   ac backlog add "<idea>" [--note …]  capture an idea (no phase/milestone spent)
   ac backlog show <id>                print the raw item as JSON
-  ac backlog note <id> ["<text>"]     read/set/clear an item's note (the title stays fixed)
+  ac backlog note <id> ["<text>"] [--append|--replace]  read/set/clear an item's note (the title stays fixed)
   ac backlog link <id> --phase N      commit the item to a phase already in flight
   ac backlog promote <id>             claim a phase number and start it from this idea
   ac backlog archive <id> --kind declined|obsolete --reason "…"  file the idea WITHOUT doing it
@@ -414,7 +425,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac phase surprise <phase> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]
                                        record what an /astro-execute run hit sideways (silent; for the milestone sweep)
   ac phase effort <phase> [<level>]   read/resolve (or set) the per-phase effort dial (light|standard|deep)
-  ac phase note <phase> ["<text>"]    read/set/clear a durable phase note (survives ROADMAP.md renders)
+  ac phase note <phase> ["<text>"] [--append|--replace]  read/set/clear a durable phase note (survives ROADMAP.md renders)
   ac phase milestone <phase> [<N>]    read/correct which milestone a phase belongs to (never moves the project)
   ac flow init                        ensure main + develop exist (gitflow, opt-in)
   ac flow                             create+switch to feature/m<N> off develop
@@ -444,6 +455,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac registry show                    print the shared numbering registry
   ac tune [--user] [--undo]           apply astro-recommended Claude settings (additive, reversible)
   ac statusline [install|preview]     wire the rich statusline (recap·model·ctx-bar·M/P) or preview it
+  ac statusline gauges [<gauge|all> <both|bar|percent>]  what each gauge (ctx, 5h, 7d, cap) shows (~/.astro/config.json)
   ac install | uninstall              (un)install commands + agents into ~/.claude
   ac update [clone-path]              git pull + refresh the global CLI and commands
   ac path [sub]                       print the framework dir, symlinks resolved (e.g. ac path workflows)
@@ -841,13 +853,15 @@ async function main() {
           die(`\`ac backlog note\` takes the text as an argument, not --note: ac backlog note ${item.id} "<text>" (nothing was changed)`);
         }
         checkFlags('backlog note', flags);
-        if (pos.length < 3) {
+        const nw = noteWrite(pos, flags);
+        if (!nw.write) {
           console.log(item.note ?? '');
         } else {
-          const updated = await setBacklogNote(r, item.id, pos.slice(2).join(' '));
+          let updated;
+          try { updated = await setBacklogNote(r, item.id, nw.text, nw.opts); } catch (e) { die(e.message); }
           console.log(
             updated.note
-              ? `✓ backlog ${updated.id} note updated`
+              ? `✓ backlog ${updated.id} note ${nw.opts.append ? 'appended' : 'updated'} (${updated.note.length} chars)`
               : `✓ backlog ${updated.id} note cleared`,
           );
         }
@@ -2184,16 +2198,23 @@ async function main() {
         //   ac phase note <n> "<text>"   WRITE: persist it; the renderer emits it
         //   ac phase note <n> ""         CLEAR
         // ROADMAP.md is generated, so this is the only place such a note survives.
-        if (!ph) die('usage: ac phase note <phase> ["<text>"]');
-        if (pos.length < 3) {
+        //   ac phase note <n> --append "<text>"   ADD a line under the existing note
+        //   ac phase note <n> --replace "<text>"  OVERWRITE it — a plain WRITE that would
+        //                                         drop an existing note is refused (#106)
+        if (!ph) die('usage: ac phase note <phase> ["<text>"] [--append | --replace]');
+        checkFlags('phase note', flags);
+        const nw = noteWrite(pos, flags);
+        if (!nw.write) {
           console.log(ph.note ?? '');
         } else {
-          const text = pos.slice(2).join(' ');
-          const updated = await setPhaseNote(r, ph.slug, text);
+          let updated;
+          try { updated = await setPhaseNote(r, ph.slug, nw.text, nw.opts); } catch (e) { die(e.message); }
           console.log(
-            updated.note
-              ? `✓ phase ${ph.number} "${ph.name}" note: ${updated.note}`
-              : `✓ phase ${ph.number} "${ph.name}" note cleared`,
+            !updated.note
+              ? `✓ phase ${ph.number} "${ph.name}" note cleared`
+              : nw.opts.append
+                ? `✓ phase ${ph.number} "${ph.name}" note appended (${updated.note.length} chars): ${nw.text.trim()}`
+                : `✓ phase ${ph.number} "${ph.name}" note: ${updated.note}`,
           );
         }
       } else if (sub === 'milestone') {
@@ -2606,7 +2627,19 @@ async function main() {
         console.log('  takes effect on the next statusline repaint (a keystroke or the next turn).');
         return;
       }
-      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview`);
+      if (sub === 'gauges') {
+        // Per user, like agent_tools: `ac statusline gauges` shows, `<gauge|all> <mode>` sets.
+        if (pos.length > 1) {
+          if (pos.length !== 3) die(`usage: ac statusline gauges <${GAUGES.join('|')}|all> <${GAUGE_MODES.join('|')}>`);
+          const res = setGaugeMode({ gauge: pos[1], mode: pos[2] });
+          if (!res.ok) die(res.error);
+          console.log(`✓ ${pos[1]} → ${pos[2]}  (~/.astro/config.json; next statusline repaint)`);
+        }
+        const modes = readGaugeModes();
+        for (const g of GAUGES) console.log(`  ${g.padEnd(4)} ${modes[g]}`);
+        return;
+      }
+      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview | gauges`);
       // Render the real hook against a representative Claude stdin blob so the
       // preview is WYSIWYG (dot + bar included). A tiny synthetic transcript drives
       // the recap + context-fill; --tokens/--model/--recap override the samples.
@@ -2623,6 +2656,8 @@ async function main() {
       const now = Math.floor(Date.now() / 1000);
       const rec = flags.idle ? { prompt: now - 10, stop: now } : { prompt: now, at: now };
       writeFileSync(join(previewHome, '.astro', 'code', 'session-state.json'), JSON.stringify({ preview: rec }));
+      // …and the user's gauge modes, so the preview draws what their real line will.
+      writeFileSync(join(previewHome, '.astro', 'config.json'), JSON.stringify({ statusline: { gauges: readGaugeModes() } }));
       // seed the version file so the preview shows the ⊡ astro v<version> mark like the real line
       try { const v = (JSON.parse(readFileSync(join(FRAMEWORK_ROOT, 'package.json'), 'utf8')) || {}).version; if (v) writeFileSync(join(previewHome, '.astro', 'code', 'version'), v + '\n'); } catch { /* best-effort */ }
       const blob = {

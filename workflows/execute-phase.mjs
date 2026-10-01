@@ -569,6 +569,7 @@ if (!Array.isArray(tasks) || tasks.length === 0) {
     waves: 0,
     executed: 0,
     skipped: [],
+    blocked: [],
     healed: [],
     remediationCycles: 0,
     stoppedReason: 'no-tasks',
@@ -733,7 +734,9 @@ const EXEC_IDENTITY =
   `commit). The integrator is checked against this — report what git says, not what you expect.`
 
 const runOnBranch = (t) =>
-  agent(execPrompt(t), { label: taskLabel('exec', t), phase: 'Execute', agentType: 'astro-executor', model: models.executor, effort: reasoning.executor })
+  // #100 — the on-branch executor reports branch/commit too: without it the script had no
+  // signal that a task stopped BLOCKED, and dispatched its dependents on top of nothing.
+  agent(execPrompt(t) + EXEC_IDENTITY, { label: taskLabel('exec', t), phase: 'Execute', agentType: 'astro-executor', model: models.executor, effort: reasoning.executor, schema: EXEC_SCHEMA })
 
 // healPrompt is DISTINCT from execPrompt — it tells the executor this is a HEAL
 // re-run after an integration cherry-pick conflict, so it must not blindly pick up
@@ -1260,7 +1263,8 @@ const batchPrompt = (orderedTasks) =>
   `back to its task by grepping for it, so an unstamped commit is an unmappable branch — in ` +
   `benchmark #2 four of five commits in one wave shipped unstamped and two were not even ` +
   `conventional-commit shaped. Before you report a task as committed, re-read its subject and ` +
-  `confirm the stamp is literally present.\n\n` +
+  `confirm the stamp is literally present.\n` +
+  `- A task that ends BLOCKED or uncommitted: skip every task whose depends_on reaches it (#100).\n\n` +
   `After implementing every task, derive \`committed\` MECHANICALLY — do NOT rely on your own ` +
   `belief about what landed. For EACH task id, run:\n` +
   `  git log --oneline --fixed-strings --grep "(phase ${phaseNum} <taskId>)"\n` +
@@ -1324,6 +1328,28 @@ const noteLeftovers = (wave, items) => {
 // eats the failure noise ONCE, not on every wave.  Correctness is preserved either
 // way (on-branch is always valid); only intra-wave parallelism is given up.
 let worktreesUnavailable = false
+// #100 — dispatch-time dependency gate for every on-branch run. buildWaves orders by
+// depends_on, but it is a scheduling-time view: it cannot know that a predecessor came
+// back without a commit (an executor stopped at a BLOCKED point). A task whose dependency
+// did not land THIS run is not dispatched; it is recorded with the id that stopped it, and
+// being unlanded itself, it stops its own dependents in turn (transitive). Only a landed
+// task enters `results`, so `executed` counts commits, not attempts. A declared commit-free
+// task (no_commit) lands by returning at all — it has no commit to report.
+const notLanded = new Map() // task id -> reason
+const runGated = async (t) => {
+  const dep = t.depends_on.find((d) => notLanded.has(d))
+  if (dep) {
+    notLanded.set(t.id, `dependency ${dep} did not commit`)
+    log(`⊘ ${t.id} not dispatched — dependency ${dep} did not commit`)
+    return
+  }
+  const out = await runOnBranch(t)
+  if (out && (out.commit || t.no_commit)) results.push(out)
+  else {
+    notLanded.set(t.id, out ? 'executor reported no commit' : 'executor returned nothing')
+    log(`⚠ ${t.id} landed no commit — its dependents will not be dispatched`)
+  }
+}
 // Phase-07 / ADR-017: all-done short-circuit — when every task is already stamped
 // on the branch, executableTasks is empty and waves is empty; the loop below is a
 // no-op.  The Verify phase still runs (CONTEXT.md: "a phase may have executed fully
@@ -1365,10 +1391,7 @@ if (leanBatch) {
       `⚠ batch executor committed ${committed.length}/${ordered.length} task(s) — ` +
         `re-running the missing ${missing.length} on-branch: ${missing.map((t) => t.id).join(', ')}`,
     )
-    for (const t of missing) {
-      const r2 = await runOnBranch(t)
-      if (r2) results.push(r2)
-    }
+    for (const t of missing) await runGated(t)
   }
 }
 // leanBatch already handled every executable task above via ONE warm call (+ per-task
@@ -1382,10 +1405,7 @@ for (let w = 0; w < waves.length && !integrationFailed && !leanBatch; w++) {
   // A, or a single-task wave (nothing to parallelize), or worktrees proven
   // unavailable this run: commit straight on the branch.
   if (strategy === 'sequential' || wave.length === 1 || worktreesUnavailable) {
-    for (const t of wave) {
-      const out = await runOnBranch(t)
-      if (out) results.push(out)
-    }
+    for (const t of wave) await runGated(t)
     continue
   }
   // B: isolated parallel executors, then fold the wave onto the working branch.
@@ -1417,10 +1437,7 @@ for (let w = 0; w < waves.length && !integrationFailed && !leanBatch; w++) {
         `(worktree isolation likely unavailable here) — re-running on-branch sequentially: ` +
         missing.map((t) => t.id).join(', '),
     )
-    for (const t of missing) {
-      const r2 = await runOnBranch(t)
-      if (r2) results.push(r2)
-    }
+    for (const t of missing) await runGated(t)
     // Adaptive downgrade: a MAJORITY worktree-failure means the harness can't
     // reliably create worktrees here (lock-race under width) — not a one-off
     // flake.  Latch on so the rest of the run goes straight on-branch and the
@@ -2166,6 +2183,9 @@ return {
   effort,
   executed: results.length,
   skipped: skippedTaskIds,
+  // #100 — tasks that did not land this run, in dispatch order: `{ id, reason }`, where the
+  // reason names the dependency that stopped a task that was never dispatched.
+  blocked: [...notLanded].map(([id, reason]) => ({ id, reason })),
   healed: healedTaskIds,
   unstamped: unstampedBranches,
   leftovers: [...leftovers.values()],

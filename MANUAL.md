@@ -99,6 +99,22 @@ the verifier can't be given `Write` this way. A bad entry is reported and skippe
 breaks an install. A config dir whose `agents/` *is* the source checkout (a self-hosted dev
 setup) reads the shipped files directly, and `ac install` says so.
 
+### What the statusline gauges show
+
+The statusline's four gauges — **ctx** (context fill), **5h** and **7d** (quota windows) and
+**cap** (spend cap) — each show their bar, their percent, or both (the default). Pick with
+`/astro-config statusline`, or from a shell:
+
+```bash
+ac statusline gauges                  # what each gauge shows now
+ac statusline gauges 5h percent       # one gauge: ctx | 5h | 7d | cap
+ac statusline gauges all both         # every gauge back to the default
+```
+
+Width still wins: on a line too narrow for bars every gauge shows its percent, so a gauge set
+to `bar` falls back to its number instead of disappearing. Like `agent_tools`, it is per user
+and lives in **`~/.astro/config.json`** (`{ "statusline": { "gauges": { "5h": "percent" } } }`).
+
 ### Windows / PowerShell
 
 `ac` is shadowed by PowerShell's built-in `Add-Content` alias (aliases beat external
@@ -211,7 +227,8 @@ could later collide — set up an `origin` and run `ac registry init` first.
 > **Never hand-edit `.astrocode/roadmap.json`, `state.json`, or the registry.** Editing
 > them desynchronises the claim ledger and the corruption surfaces later, on someone
 > else's branch. `ROADMAP.md` is **generated** — edits to it are overwritten; use
-> `ac phase note <n> "<text>"` for a note that survives.
+> `ac phase note <n> "<text>"` for a note that survives. To add to an existing note use
+> `--append`; a plain write that would drop it is refused unless you pass `--replace`.
 
 A phase's milestone lives **on the phase**. Scheduling a phase for a future milestone never
 moves the project. **Milestones have a lifecycle** — planned → active → complete:
@@ -690,6 +707,7 @@ ac phase surprise <n> [--healed n] [--remediation-cycles n] [--stopped-reason r]
 ac phase context <n> [--author]  # discuss-gate status, or who captured it: human | agent <name> | none
 ac phase effort <n> deep       # per-phase verify→remediate budget (light|standard|deep)
 ac phase note <n> "<text>"     # durable phase note (survives ROADMAP.md renders)
+ac phase note <n> --append "…" # add a line to it; --replace overwrites (a plain write never drops a note)
 ac phase milestone <n> [<N>]   # read/correct a phase's milestone (never moves the project)
 ac milestone new               # claim the next milestone number and start it
 ac milestone new --planned     # declare a later milestone without starting it (--number N: repair)
@@ -711,7 +729,7 @@ ac debt dismiss <id> --reason … # it was NEVER true — the verifier was wrong
 
 ac backlog add "<idea>"        # capture an idea (no file, no phase number spent)
 ac backlog list                # open ideas, oldest first
-ac backlog note <id> ["<text>"] # read/set/clear an item's note (the title stays fixed)
+ac backlog note <id> ["<text>"] # read/set/clear an item's note (the title stays fixed); --append / --replace as for phases
 ac backlog link <id> --phase N # fold it into a phase already in flight
 ac backlog promote <id>        # claim a phase number and seed CONTEXT.md from it
 ac backlog archive <id> --kind declined|obsolete --reason "…" # file it WITHOUT doing it

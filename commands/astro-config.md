@@ -1,17 +1,20 @@
 ---
-description: Configure astro-code's agents — which model runs each role and how hard it thinks, or which extra MCP tools (e.g. lean-ctx) they may use
-argument-hint: [models|tools]
+description: Configure astro-code — which model runs each role and how hard it thinks, which extra MCP tools (e.g. lean-ctx) the agents may use, or what each statusline gauge shows
+argument-hint: [models|tools|statusline]
 allowed-tools: Bash, AskUserQuestion
 ---
 
-Two things can be configured here:
+Three things can be configured here:
 
 - **models** — which model runs each role, and how hard it thinks (below, "Models").
-- **tools** — which extra MCP tools astro-code's agents may use (last section, "Agent tools").
+- **tools** — which extra MCP tools astro-code's agents may use ("Agent tools").
+- **statusline** — what each statusline gauge shows: bar, percent or both (last section,
+  "Statusline gauges").
 
-If `$ARGUMENTS` is `models` or `tools`, go straight to that section. Otherwise ask with
-**AskUserQuestion** — header `Configure`, options **Models** (tier + reasoning per role) and
-**Agent tools** (extra MCP tools for the agents) — and follow the one picked.
+If `$ARGUMENTS` is `models`, `tools` or `statusline`, go straight to that section. Otherwise
+ask with **AskUserQuestion** — header `Configure`, options **Models** (tier + reasoning per
+role), **Agent tools** (extra MCP tools for the agents) and **Statusline** (bar / % per
+gauge) — and follow the one picked.
 
 # Models
 
@@ -119,3 +122,23 @@ you list what this session actually has.**
    installed agents immediately. Relay its warnings; if it refuses, show why and stop.
 7. **Finish** with `ac agent-tools` (the per-agent result) and one line: a Claude Code session
    already running keeps its old agent definitions — restart it to pick them up.
+
+# Statusline gauges
+
+The statusline draws four gauges: **ctx** (context fill), **5h** and **7d** (the rolling
+quota windows) and **cap** (the gateway spend cap, when present). Each can show its **bar**,
+its **percent**, or **both** (the default). The setting is **per user** —
+`~/.astro/config.json` under `statusline`, shared by every project on this machine — and
+`ac statusline gauges` is the only thing that writes it.
+
+1. **Show what is set:** `ac statusline gauges`.
+2. **Ask** with AskUserQuestion, one question per gauge (four questions, one call) — header
+   the gauge name, options **Both**, **Percent**, **Bar**, with the current value marked.
+   Say once that width still wins: on a line too narrow for bars every gauge shows its
+   percent, so a gauge set to **Bar** never disappears.
+3. **Apply** each changed gauge — never edit the JSON yourself:
+   `ac statusline gauges <ctx|5h|7d|cap|all> <both|bar|percent>`. If every gauge gets the
+   same mode, one `all` call does it. If `ac` refuses (e.g. the file is not valid JSON), show
+   why and stop.
+4. **Finish** with `ac statusline preview`, and one line: it takes effect on the next
+   statusline repaint.

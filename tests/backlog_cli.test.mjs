@@ -243,7 +243,7 @@ test('ac backlog note reads, writes and clears; the title is never editable', as
   assert.match(read.stdout, /first pass/);
 
   // WRITE
-  assert.equal(run(['backlog', 'note', id, 'sharper second pass'], root).status, 0);
+  assert.equal(run(['backlog', 'note', id, 'sharper second pass', '--replace'], root).status, 0);
   assert.match(run(['backlog', 'note', id], root).stdout, /sharper second pass/);
   assert.doesNotMatch(run(['backlog', 'note', id], root).stdout, /first pass/);
 
@@ -301,6 +301,6 @@ test('#63: `ac backlog note` rejects unknown flags, and --note is refused with t
   assert.match(viaFlag.stderr, new RegExp(`ac backlog note ${id} "<text>"`));
 
   assert.equal(run(['backlog', 'note', id], dir).stdout.trim(), 'original', 'neither call changed the note');
-  assert.equal(run(['backlog', 'note', id, 'rewritten'], dir).status, 0, 'the documented form still writes');
+  assert.equal(run(['backlog', 'note', id, 'rewritten', '--replace'], dir).status, 0, 'the documented form still writes');
   assert.equal(run(['backlog', 'note', id], dir).stdout.trim(), 'rewritten');
 });

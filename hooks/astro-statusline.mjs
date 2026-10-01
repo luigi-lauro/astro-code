@@ -22,7 +22,7 @@ import {
   findAstroRoot, readContext, renderSegment,
   readContextTokens, renderClaudeSegment, modelLimit,
   isBusy, renderStatus, termWidth, visibleWidth, truncateVisible, packStatus, renderSegmentParts, STATUS_SEP,
-  renderRateLimits, renderPromptCache,
+  renderRateLimits, renderPromptCache, readGaugeModes,
 } from './_astro-ctx.mjs';
 
 const HOME = join(homedir(), '.astro', 'code');
@@ -85,14 +85,20 @@ if (prev && typeof prev.command === 'string' && prev.command) {
 // as the row layout, so it is resolved before any of them.
 const cols = termWidth();
 
-// The narrowest single line on which the gauge BARS still fit alongside model,
-// branch, version and project state. Measured, not guessed: with bars the one-line
-// render is ~145 columns, so anything below this reflows — which is exactly the
-// C8 failure. Above it the bars are free; below it they cost a second row.
-const BAR_WIDTH_FLOOR = 150;
-const barsFit = cols === 0 || cols >= BAR_WIDTH_FLOOR;
+// What each gauge (ctx, 5h, 7d, cap) shows — bar, percent or both — per user, from
+// ~/.astro/config.json. Width still decides whether bars fit at all; a mode only removes.
+const gauges = readGaugeModes();
+
+// The single line carries the gauge BARS when the whole line, bars included, fits the
+// terminal: measured below once every segment is known, with the branch at its FULL
+// length (a branch truncated to make room for bars is the C8 failure, not a fit).
+// A fixed floor (150 columns, sized for the busiest line: model, branch, version and
+// project state at ~145) hid the bars from a 147-column terminal whose line was 80
+// columns wide, while the same terminal's row layout drew them from 130 columns.
+let barsFit = cols === 0;
 
 let claude = '';
+let claudeBarred = '';
 if (data) {
   const tp = data.transcript_path;
   // The window Claude Code itself runs on — the one auto-compaction uses — arrives in the
@@ -110,8 +116,9 @@ if (data) {
   // misleading >100% reading (the 236% bug) structurally impossible even if a model's
   // window grows and modelLimit hasn't caught up. Claude Code's own figure is not second-guessed.
   if (!reportedWindow && tokens != null && limit && tokens > limit) limit = Math.max(1_000_000, tokens);
-  // Drawn like the quota gauges and shed the same way: bar above the floor, number below.
-  claude = renderClaudeSegment({ model: data.model, tokens, limit, bar: barsFit });
+  // Drawn like the quota gauges and shed the same way: bar when the line fits it, number when not.
+  claude = renderClaudeSegment({ model: data.model, tokens, limit, bar: false, mode: gauges.ctx });
+  claudeBarred = renderClaudeSegment({ model: data.model, tokens, limit, bar: true, mode: gauges.ctx });
 }
 
 // (3) subscription rate-limit quota — how much of the rolling 5h/7d windows
@@ -122,20 +129,20 @@ if (data) {
 // for the row layout — the same lookahead-ladder shape `lookahead` below uses,
 // so a shrinking screen sheds bars, then all-but-the-hottest window (D4),
 // never a slice mid-token.
-// The single line carries BARS only when the terminal is wide enough to hold them.
+// The single line carries BARS only when the whole line fits with them (decided below).
 // It used to ask for `full` unconditionally, which is what pushed the one-line render
 // to 145 columns and split a 110-column terminal into two rows: the bars were bought
 // with width the line did not have. Numbers alone still answer "how much is left",
 // which is the question; the bar is the luxury, so it is the first thing to go.
-const rlWide = barsFit ? 'full' : 'numbers';
-const rateLimitsFull = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: rlWide }) : '';
+let rateLimitsFull = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'numbers', modes: gauges }) : '';
+const rateLimitsBarred = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'full', modes: gauges }) : '';
 
 // (4) prompt cache — warm until when, or cold and what the next turn re-writes, plus
-// the cause of a miss for a few minutes after it. On the single line below the bar
-// floor it gets ONE fact (the `minimal` tier), and further down it is dropped from the
+// the cause of a miss for a few minutes after it. On a single line without
+// bars it gets ONE fact (the `minimal` tier), and further down it is dropped from the
 // single line rather than being the segment that forces a second row — see below.
-const pcWide = barsFit ? 'full' : 'minimal';
-let cacheWide = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: pcWide }) : '';
+let cacheWide = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: 'minimal' }) : '';
+const cacheBarred = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: 'full' }) : '';
 
 // (5) the astro project segment — current milestone/phase/status + live activity.
 // The cwd comes from Claude's stdin blob; from it we walk up to the `.astrocode/`.
@@ -195,7 +202,7 @@ const project = [identity, state].filter(Boolean).join(' · ');
 // no promotion to row 1 — this rides row 2 with branch/claude like every other
 // non-identity segment, shed wholesale by `packStatus`'s normal fit rules.
 const rlDetail = cols === 0 || cols >= 130 ? 'full' : cols >= 90 ? 'numbers' : 'hottest';
-const rateLimitsRow = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: rlDetail }) : '';
+const rateLimitsRow = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: rlDetail, modes: gauges }) : '';
 const cacheRow = data
   ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: cols === 0 || cols >= 130 ? 'full' : 'compact' })
   : '';
@@ -228,6 +235,17 @@ const stateFitsRow1 = !rowWidth ||
 // mistakes it for the whole name. Below a floor it is dropped instead — three characters
 // and an ellipsis is worse than silence.
 const BRANCH_MIN = 12;
+// The bar tier for the single line, now that every segment is known: the whole line
+// with bars and the branch untruncated must fit the row. Unknown width (0) keeps bars.
+if (!barsFit) {
+  const barred = [base, claudeBarred, rateLimitsBarred, cacheBarred, project, branch, update].filter(Boolean);
+  barsFit = visibleWidth(barred.join(STATUS_SEP)) <= rowWidth;
+}
+if (barsFit) {
+  claude = claudeBarred;
+  rateLimitsFull = rateLimitsBarred;
+  cacheWide = cacheBarred;
+}
 // The cache is the one segment allowed to vanish from the single line to keep it single:
 // a cold cache costs tokens, a second row costs the layout every render. If the other
 // bounded segments fit but adding the cache would not, it goes. When the line is going
@@ -243,7 +261,7 @@ if (branch && rowWidth) {
   const bounded = [base, claude, rateLimitsFull, cacheWide, project, update].filter(Boolean);
   const spent = visibleWidth(bounded.join(STATUS_SEP)) + (bounded.length ? visibleWidth(STATUS_SEP) : 0);
   const room = rowWidth - spent;
-  if (room < BRANCH_MIN) branchWide = '';
+  if (room < Math.min(BRANCH_MIN, visibleWidth(branch))) branchWide = '';   // a short branch that fits is shown whole
   else if (room < visibleWidth(branch)) branchWide = truncateVisible(branch, room);
 }
 
