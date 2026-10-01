@@ -49,3 +49,55 @@
 ## Common Patterns
 
 <!-- Reusable tips, gotchas, and multi-kit workflows. -->
+
+### Reading a data source from a script
+
+<!-- Only for kits that declare `sources[]` in kit.json — delete this subsection
+     otherwise. Replace `erp` / `open_orders` / `CustomerId` with the kit's own source,
+     named query and params, and say which recipe phase runs it. -->
+
+A report script pulls its data through a named query and reads the result from the
+file it was written to — never from rows pasted into the prompt:
+
+```python
+import csv
+import sys
+
+import astro_sources  # stdlib helper provided by the Astro worker, not shipped in the kit
+
+try:
+    # With out=, returns {queryId, path, rows, bytes, sha256, truncated, columns};
+    # the rows themselves are in the file.
+    meta = astro_sources.query(
+        "erp", "open_orders", out="_report/data/open_orders.csv", CustomerId=42
+    )
+except astro_sources.AstroQueryError as err:
+    # err.code is machine-readable (unbound source, @returns drift, …): fail loudly,
+    # never fall back to invented data.
+    sys.exit(f"open_orders failed: {err.code}: {err.message}")
+
+if meta["truncated"]:
+    sys.exit("open_orders hit @max_rows — the totals would be wrong; narrow the query")
+
+with open(meta["path"], newline="", encoding="utf-8") as fh:
+    rows = list(csv.DictReader(fh))
+# Cite meta["queryId"] next to every figure the report takes from these rows.
+```
+
+The matching named query, `src/sources/erp/queries/open_orders.sql`:
+
+```sql
+-- @name open_orders
+-- @description Open orders for a customer, newest first
+-- @param CustomerId int required
+-- @returns OrderId int, OrderDate date, Total decimal(18,2)
+-- @max_rows 500
+SELECT OrderId, OrderDate, Total
+FROM dbo.Orders
+WHERE CustomerId = @CustomerId AND Status = 'open' AND IsDeleted = 0
+ORDER BY OrderDate DESC, OrderId
+```
+
+`astro_sources` exists only inside an Astro worker, so this script cannot run under
+`tools/kit_run_local.py`; check the query with `/astro-kit-test --live` and the script
+on a running instance.
