@@ -635,6 +635,7 @@ It's pure local git (no `gh`/`glab`, any remote or none) and it refuses to touch
 /astro-kit-new [kit-id]   start a new Astro kit: scaffold manifest v4 + recipe + build tooling
 /astro-kit-convert [src]  convert an existing non-kit implementation at verified feature parity
 /astro-kit-test           test a kit WITHOUT publishing: offline static checks, or --tier2
+/astro-kit-source [id]    author/refresh a data source: introspect the database through a running Astro instance, merge into schema.json + SOURCE.md
 /astro-kit-publish        publish a kit to a hosted Astro instance (zip with kit.json inside)
 ```
 
@@ -687,7 +688,7 @@ astro-code itself captures (ADR-065). A forge server reads the store back read-o
 /astro-statusline         set a rich Claude Code statusline (milestone/phase track, context bar)
 /astro-update             pull the latest astro-code and re-link it everywhere
 /astro-help               short guide: the loop, the commands, and how to go fast
-/astro-kit-new /astro-kit-convert /astro-kit-test /astro-kit-publish
+/astro-kit-new /astro-kit-convert /astro-kit-test /astro-kit-source /astro-kit-publish
 ```
 
 On Codex, invoke the same commands as `$astro-plan 3`.

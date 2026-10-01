@@ -48,6 +48,7 @@ devs never collide.
 - `/astro-kit-new` — start a new Astro kit (standalone kit project: manifest v4 + recipe + build tooling)
 - `/astro-kit-publish` — publish a kit to a hosted Astro instance (zip with `kit.json` inside → the instance's kit registry)
 - `/astro-kit-convert <source path>` — convert an existing non-kit implementation into a standard Astro kit at verified feature parity with the original
+- `/astro-kit-source <source id> <instance URL>` — author/refresh a kit's data source by introspecting the database through a running Astro instance (writes schema.json + SOURCE.md, merges on re-run)
 - `/astro-phase <name>` — add a phase · `/astro-milestone` — start the next milestone
 - `/astro-status` — where am I, what's next · `/astro-decision` — record an ADR into the canon
 - `/astro-statusline` — set a rich statusline (busy/idle dot · task recap · model · context-fill bar · milestone/phase)

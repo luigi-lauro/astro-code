@@ -32,3 +32,27 @@
 ## Reference material
 
 <!-- What lives in reference/ and schemas/ and when to consult it. -->
+
+## Data sources
+
+<!-- Fill this section ONLY if kit.json declares `sources[]`; otherwise delete it.
+     Do not restate the generic rules (read before SQL, prefer named queries, aggregate
+     in SQL, outputPath for script input, cite queryIds): UseKit's post-load summary and
+     DescribeSource already give them to the agent. State only how THIS kit uses its
+     sources. Guide: KIT-CONTRACT.md "Writing a good source". -->
+
+<!-- Per source, one line: what it is for in this kit, e.g.
+     - `erp` — order book and customers; the only source of truth for open amounts. -->
+
+<!-- Which recipe phase runs which query, and who runs it. "Who" is either the agent
+     (QuerySource tool) or a script (astro_sources.py / astro-query CLI). Anything a
+     script reads must be written to a file under _report/ via outputPath / out=.
+
+| Recipe phase | Source | Named query (or ad-hoc) | Params | Run by | Output |
+|---|---|---|---|---|---|
+| work | erp | open_orders | CustomerId from $ARGUMENTS | agent (QuerySource) | _report/data/open_orders.csv |
+| generate_report | erp | order_totals | Since | script (astro_sources.query) | _report/data/order_totals.csv |
+-->
+
+The generic source rules come from UseKit's summary and `DescribeSource`; they are not
+repeated here.

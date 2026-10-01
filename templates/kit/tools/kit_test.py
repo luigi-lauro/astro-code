@@ -52,6 +52,8 @@ if sys.version_info < (3, 10):
     sys.exit(2)
 
 import argparse
+import contextlib
+import io
 import json
 import py_compile
 import re
@@ -1797,6 +1799,135 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
             rep.fail("sources", "SRC-14", f"{source_id}: adhoc is false but declares zero named queries")
 
 
+def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> None:
+    """SRC-20..24 (C9, C10, design PLAN.md §4) — only reached with `--live`.
+    For each declared source: POST the introspect contract (ADR-022) to the
+    hosted instance named by ASTRO_BASE_URL and report schema drift and
+    `@returns` mismatches straight from the response — the comparisons
+    themselves are the server's job (i3), never re-derived here. Imported and
+    run lazily: the offline path above never reads these env vars or touches
+    the network."""
+    if not isinstance(manifest, dict):
+        return
+    sources = manifest.get("sources")
+    if not isinstance(sources, list):
+        return
+
+    this_dir = Path(__file__).resolve().parent
+    if str(this_dir) not in sys.path:
+        sys.path.insert(0, str(this_dir))
+    import _astro_client as astro  # noqa: PLC0415 — intentionally lazy (C9)
+
+    # Every report line goes through the client's redaction, like its own
+    # log()/die(): an instance error may echo a password back (C9).
+    def _fail(check_id: str, msg: str) -> None:
+        rep.fail("live", check_id, astro.redact(msg, astro._SECRETS))
+
+    def _ok(check_id: str, msg: str) -> None:
+        rep.ok("live", check_id, astro.redact(msg, astro._SECRETS))
+
+    # `--json` must emit exactly one JSON document on stdout; `_astro_client`'s
+    # log()/ok() progress lines (e.g. "Logging in…") are swallowed in that
+    # mode. `die()`'s own messages go to stderr regardless, so a real failure
+    # is unaffected either way.
+    quiet = contextlib.redirect_stdout(io.StringIO()) if args.json else contextlib.nullcontext()
+    with quiet:
+        base, email, password = astro.env_credentials()
+        token = astro.login(base, email, password)
+        kit_id = astro.resolve_kit_id(root)
+
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        source_id = src.get("id")
+        if not isinstance(source_id, str):
+            continue
+
+        src_dir = root / "src" / "sources" / source_id
+        schema_path = src_dir / "schema.json"
+        if not schema_path.is_file():
+            _fail("SRC-20", f"{source_id}: schema.json missing — cannot run the live check")
+            continue
+        try:
+            data = load_source_schema_json(schema_path.read_bytes())
+        except (SourceSchemaParseError, ValueError, OSError) as exc:
+            _fail("SRC-20", f"{source_id}: schema.json: {exc}")
+            continue
+        tables = data.get("tables") if isinstance(data, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        # Sent exactly as documented: Astro's scope globs take a bracketed
+        # part as a literal name, so `[dbo].[Order Lines]` matches that table
+        # and nothing else.
+        include = sorted(tables.keys())
+
+        queries: list[dict] = []
+        queries_dir = src_dir / "queries"
+        if queries_dir.is_dir():
+            for p in sorted(queries_dir.iterdir()):
+                if p.is_file() and _SQL_SUFFIX_RE.search(p.name):
+                    try:
+                        queries.append({"file": p.name, "text": p.read_text(encoding="utf-8")})
+                    except OSError as exc:
+                        _fail("SRC-20", f"{source_id}: {p.name}: cannot be read: {exc}")
+
+        body: dict = {"include": include, "schema": data, "queries": queries}
+        connection = astro.one_off_from_env(source_id)
+        if connection:
+            body["connection"] = connection
+
+        url = f"{base}/api/kit-packages/{kit_id}/sources/{source_id}/introspect"
+        status, resp = astro.request_json("POST", url, token, body)
+        if status == 404 and isinstance(resp, dict) and resp.get("error") == "kit_not_found":
+            status, resp = astro.request_json("POST", f"{base}/api/sources/introspect", token, body)
+
+        if status != 200:
+            message = (isinstance(resp, dict) and (resp.get("message") or resp.get("error"))) or f"HTTP {status}"
+            _fail("SRC-20", f"{source_id}: live introspection failed: {message}")
+            continue
+        _ok("SRC-20", f"{source_id}: live introspection succeeded")
+
+        drift = resp.get("drift") if isinstance(resp, dict) else None
+        drift = drift if isinstance(drift, dict) else {}
+
+        missing_tables = drift.get("missingTables") or []
+        if missing_tables:
+            _fail("SRC-21", f"{source_id}: documented table(s) missing from the database: {', '.join(missing_tables)}")
+        else:
+            _ok("SRC-21", f"{source_id}: every documented table is present")
+
+        missing_columns = drift.get("missingColumns") or []
+        if missing_columns:
+            names = ", ".join(f"{c.get('table')}.{c.get('column')}" for c in missing_columns)
+            _fail("SRC-22", f"{source_id}: documented column(s) missing: {names}")
+        else:
+            _ok("SRC-22", f"{source_id}: every documented column is present")
+
+        type_changes = drift.get("typeChanges") or []
+        if type_changes:
+            parts = ", ".join(
+                f"{c.get('table')}.{c.get('column')} {c.get('documented')} -> {c.get('actual')}"
+                for c in type_changes
+            )
+            _fail("SRC-23", f"{source_id}: column type change(s): {parts}")
+        else:
+            _ok("SRC-23", f"{source_id}: no column type changes")
+
+        query_checks = resp.get("queryChecks") if isinstance(resp, dict) else None
+        query_checks = query_checks if isinstance(query_checks, list) else []
+        bad = [q for q in query_checks if isinstance(q, dict) and not q.get("ok", True)]
+        if bad:
+            for q in bad:
+                diffs = q.get("differences") or []
+                detail = (
+                    "; ".join(f"{d.get('column') or d.get('expected')}: {d.get('reason')}" for d in diffs)
+                    or q.get("error")
+                    or "mismatch"
+                )
+                _fail("SRC-24", f"{source_id}: {q.get('file')}: @returns mismatch — {detail}")
+        else:
+            _ok("SRC-24", f"{source_id}: every named query's @returns matches")
+
+
 def load_recipe(path: Path) -> tuple[dict, str]:
     """Return (recipe_dict, parser_name). PyYAML wins when available."""
     text = path.read_text(encoding="utf-8")
@@ -2173,6 +2304,15 @@ def main() -> int:
     parser.add_argument("--kit-root", default=".", help="kit root directory (default: cwd)")
     parser.add_argument("--json", action="store_true", help="emit a machine-readable report on stdout")
     parser.add_argument("--skip-parity", action="store_true", help="do not run parity_check.py")
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "also run each declared source's introspect contract against a hosted Astro instance "
+            "(ASTRO_BASE_URL/ASTRO_ADMIN_EMAIL/ASTRO_ADMIN_PASSWORD) and check for schema drift / "
+            "@returns mismatches (SRC-20..24)"
+        ),
+    )
     args = parser.parse_args()
 
     root = Path(args.kit_root).resolve()
@@ -2193,6 +2333,8 @@ def main() -> int:
     if not args.skip_parity:
         check_parity(root, rep)
     check_build(root, rep)
+    if args.live:
+        check_sources_live(root, manifest, rep, args)
 
     if args.json:
         print(json.dumps({

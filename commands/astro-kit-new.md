@@ -36,7 +36,16 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
    - **tool dependencies** known up front (apt/pip/npm/url — exact version pins), the
      runtime (usually `python3`), and **estimated duration**;
    - anything domain-specific the kit needs (reference data, external services,
-     models).
+     models);
+   - **data sources** — does the kit read a database at run time? Ask this as an
+     `AskUserQuestion` fork. If yes, per source collect: an **id**
+     (`^[a-z][a-z0-9_-]{0,31}$`, and STABLE — renaming it later is a new source and
+     orphans the binding), a one-line **description** of what the kit uses it for,
+     **required** (default `true`: a job is refused while it is unbound), and **adhoc**
+     — recommend `adhoc: false` when the questions the kit asks are known up front (the
+     agent then runs only named queries), and leave it on for exploratory kits. Only
+     SQL Server is supported (`engine: sqlserver`, `access: read_only`). Never collect
+     hosts, connection strings or logins — bindings live in astroport, not in the kit.
 
 3. **Scaffold.** Copy the template tree and fill every `{{PLACEHOLDER}}` from the
    interview (author from `git config user.name`); drop the `.tmpl` suffix:
@@ -49,16 +58,26 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
      Fill what the interview settled; leave the guidance comments where phases will
      flesh things out. Create empty `src/scripts/`, `src/reference/`, `src/schemas/`
      (with `.gitkeep`).
-   - `$KIT_TPL/tools/` → `tools/` **verbatim** (build_kit.sh, _zip_src.py,
-     publish_kit.py, validate_manifest.py, kit_test.py, kit_run_local.py,
-     _schema_engine.py, schemas/).
-     `chmod +x tools/build_kit.sh`.
+   - **Data sources.** If the interview declared any, fill `kit.json` `sources[]` (one
+     `{ "id", "engine": "sqlserver", "access": "read_only", "description" }` entry each,
+     plus `required`/`adhoc` only where they differ from the `true` default) and set
+     `contract_version` to `"^1.1.0"` — a non-empty `sources[]` requires it (SRC-03).
+     Fill the `## Data sources` section of `src/CLAUDE.md` with what each source is for
+     (the phase → query table is filled once the queries exist). With no sources, leave
+     `sources: []` and `^1.0.0`, and delete that section and the commented source
+     examples in the recipe and `EXAMPLES.md`.
+   - `$KIT_TPL/tools/` → `tools/` **verbatim** — all of it: `build_kit.sh`,
+     `_zip_src.py`, `publish_kit.py`, `validate_manifest.py`, `kit_test.py`,
+     `kit_run_local.py`, `kit_source.py`, `_astro_client.py`, `parity_check.py`,
+     `_schema_engine.py`, and `schemas/` (the manifest, source-schema and SQL Server
+     type schemas). Skip `__pycache__/`. `chmod +x tools/build_kit.sh`.
    - Sanity-check the scaffold now: `python3 tools/validate_manifest.py kit.json`
      must exit 0. Fix before continuing.
    - Then `python3 tools/kit_test.py` for the whole-kit Tier 1 check. A fresh
      scaffold has failures by construction (no recipe phases fleshed out yet) —
      that is the point: it is the kit's to-do list, and it goes green as the kit
-     gets built.
+     gets built. A kit with sources also fails SRC-04/SRC-05 (no `SOURCE.md` /
+     `schema.json` yet) — expected, and cleared by `/astro-kit-source <id>`.
 
 4. **Init the project.** Run `ac init --name "<kit-id>"`. Write
    `.astrocode/PROJECT.md`: **vision** = what the kit lets Astro do end-to-end and
@@ -71,7 +90,12 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
    manifest v4 rules (exact pins, base-image allowlist, 0-or-1 `email_attachment`),
    the recipe phase style (`goal`/`constraints`/`input`/`output`, runtime output
    under `_report/`, resumable state in `_report/state.json`), EXAMPLES.md required
-   sections, and "deliverables come from scripts, never hand-made". This canon is
+   sections, and "deliverables come from scripts, never hand-made". If the kit has
+   sources, add the sources rules too: no credentials or hosts in the kit, source ids
+   are stable, `schema.json` is plain JSON, named queries are deterministic with an
+   exact `@returns` and a `@max_rows`, and script-read results go to `_report/` through
+   `outputPath`/`out=` (KIT-CONTRACT.md "Data sources" and "Writing a good source").
+   This canon is
    injected into every planning/execution agent — it is how the kit contract travels
    through the whole loop. Record notable up-front choices with `ac decision add`,
    and `ac canon push` if a remote exists.
@@ -89,6 +113,11 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
       schemas, reference JSON;
    3. *Examples, docs & packaging* — complete `EXAMPLES.md` + `README.md`, finalize
       `kit.json`/`registry-entry.json`, `./tools/build_kit.sh` green, zip committed.
+   When the kit declares sources, add a *Data sources* phase before the scripts phase:
+   `/astro-kit-source <id>` per source against a running instance, then write
+   `SOURCE.md` and the named queries the recipe needs (KIT-CONTRACT.md "Writing a good
+   source"), fill `src/CLAUDE.md`'s Data sources table, and prove it with
+   `/astro-kit-test --live`.
    Confirm with the user, then create each with `ac phase add "<name>"`.
 
 8. Show `ac status` and point to `/astro-discuss 1` (then `/astro-plan 1`) — always
