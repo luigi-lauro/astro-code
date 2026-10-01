@@ -22,6 +22,26 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
    mapping primitive `astro-adopt.md` uses, do not invent a second mapping pass.
    Get back: stack & entry points, architecture, conventions, state/data, risks.
 
+   **Detect database access** in the same pass — it decides whether the kit reads a
+   live data source or a frozen file. Look for DB drivers and clients (`pyodbc`,
+   `pymssql`, `sqlalchemy`, `sqlcmd`), connection strings and DSNs (in code, config
+   or env-var names — record WHERE they are, never their values), `.sql` files, and
+   CSV/Excel inputs that are really exports of a database (a README or script that
+   dumps a query to the file the tool then reads). For each database found, ask with
+   `AskUserQuestion`: **read it live as a kit data source**, or **keep the file
+   input** as today?
+   - Only SQL Server can be a live source (`engine` is the strict enum `sqlserver`).
+     Any other engine keeps the file input — say so, and record the live source as a
+     follow-up (step 8) rather than offering it.
+   - When accepted: the kit declares it in `sources[]` (stable id, description,
+     `required`, and `adhoc: false` when the tool's queries are the whole story),
+     which sets `contract_version` to `"^1.1.0"` (SRC-03); the tool's SQL becomes
+     named queries in `src/sources/<id>/queries/` with an exact `@returns` and a
+     `@max_rows` (KIT-CONTRACT.md "Writing a good source"); and `/astro-kit-source
+     <id>` writes `schema.json` + `SOURCE.md` against a running instance once the
+     project is seeded. **Credentials are never copied** into the kit — not the
+     connection string, host, login nor password: the binding lives in astroport.
+
 2. **Propose the capability map; user confirms.** Ground the proposal in concrete
    entrypoints — `console_scripts`/`pyproject.toml`, `package.json` `bin`,
    `__main__.py`, argparse/click subcommands, a Dockerfile `ENTRYPOINT`, or OpenAPI
@@ -45,7 +65,10 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
    - **runtime**: `python3` (the kit-contract runtime);
    - **entrypoints → recipe phases**, one phase per confirmed stage from step 2;
    - **produced files → `outputs.artifacts`**, derived from what the source
-     actually writes on a real run.
+     actually writes on a real run;
+   - **accepted live sources (step 1) → `sources[]`** with `contract_version`
+     `"^1.1.0"`, and the `## Data sources` section of `src/CLAUDE.md` mapping each
+     recipe phase to the named query it runs; no sources → delete that section.
    Interview (`AskUserQuestion`, kept short) ONLY for what genuinely can't be
    derived: anything still ambiguous after steps 1–2, and **which single
    deliverable (0-or-1) is the `email_attachment`** — the kit contract never
@@ -83,6 +106,11 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
      input→output pairs and label them explicitly lower-confidence.
    Stamp every fixture with the source's version/commit, the exact capture
    command, and a timestamp so parity claims are auditable.
+   For a source turned into a live data source, the fixture input is the **query
+   result the original consumed** — the export file it read, or a result set captured
+   by running its SQL once — never a live connection, so parity compares the
+   converted logic, not today's data. Record which query produced each captured
+   input.
 
 7. **Wire the parity contract.** Write `tools/parity/parity.json` (the format
    `parity_check.py` documents) with one fixture entry per captured case — run
@@ -96,7 +124,9 @@ The scaffold source of truth is `$(ac path templates)/kit/` — referred to as
 8. **Flag the non-self-contained rest — never drop it silently.** Static-scan the
    source for capabilities that can't be reproduced self-contained: network calls,
    database/infra access, subprocess calls out to infrastructure, and
-   credential-shaped `os.environ` reads. Every such capability becomes an explicit,
+   credential-shaped `os.environ` reads. A SQL Server database the user accepted as a
+   live source in step 1 is NOT a follow-up — it is declared; but its binding in
+   astroport is, so name it. Every other such capability becomes an explicit,
    named manual follow-up — a flagged requirement/note in `.astrocode/PROJECT.md` —
    never wired into the kit as a hidden external dependency and never silently
    omitted.
