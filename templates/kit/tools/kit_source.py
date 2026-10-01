@@ -292,23 +292,51 @@ def build_source_md(source_id: str, database: str, objects: list[dict]) -> str:
         rows = obj.get("approxRows")
         suffix = f", ~{rows} rows" if rows is not None else ""
         lines.append(f"- {key} ({kind}{suffix})")
+    # The prompts below are the questions an agent reading this file cannot answer from
+    # column names alone. They mirror KIT-CONTRACT.md "Writing a good source" so the
+    # author fills the skeleton with knowledge, not with a restated table list.
+    # `## Purpose`/`## Rules`/`## Units`/`## Time zones` are kept as headings: the
+    # sources tests and existing authored files rely on them.
     lines += [
+        "",
+        "<!-- Fill every TODO, then delete these comments. Guide: KIT-CONTRACT.md",
+        '     "Writing a good source". The reader is an agent that has never seen this',
+        "     database — write what it cannot infer from column names. -->",
         "",
         "## Purpose",
         "",
-        "TODO: describe what this source is used for and when an agent should query it.",
+        "TODO: what this database is, and when an agent should query it — and when it",
+        "should NOT (questions another source or the kit's inputs answer better).",
+        "",
+        "## Which tables answer which questions",
+        "",
+        "TODO: map each question the kit asks to the tables that answer it, e.g.",
+        '"open orders per customer → dbo.Orders joined to dbo.Customers on CustomerId".',
+        "",
+        "## Grain",
+        "",
+        "TODO: what one row means in each table the kit uses (one order line, one daily",
+        "snapshot, one current-version row, …) — wrong grain is how totals double count.",
         "",
         "## Rules",
         "",
-        "TODO: list any business rules an agent must follow when querying this source.",
+        "TODO: filters that must ALWAYS apply — soft-deletes (e.g. IsDeleted = 0), status",
+        "codes to include or exclude, test/internal tenants, current-version flags.",
         "",
         "## Units",
         "",
-        "TODO: note any unit conventions (currency, measurement units, …).",
+        "TODO: the currency of each amount, net or gross (VAT?), cents or units, and the",
+        "unit of every quantity or measurement column.",
         "",
         "## Time zones",
         "",
-        "TODO: note what timezone date/time columns are stored in.",
+        "TODO: the time zone of each family of date/time columns (UTC, the server's local",
+        "time, or a business date with no time zone).",
+        "",
+        "## Known traps",
+        "",
+        "TODO: columns that do not mean what their name says, legacy codes, stale or",
+        "look-alike tables to avoid, slow tables that need a selective WHERE.",
         "",
     ]
     return "\n".join(lines)
