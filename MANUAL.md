@@ -643,6 +643,38 @@ A kit is developed as a standalone astro-code project and goes through the norma
 
 ---
 
+## Astro Fleet
+
+`ac fleet connect` reports every Claude Code session on this machine to an Astro Fleet.
+This covers sessions in any repo, not only astro-code projects. The fleet's Forge draws
+a bay per project, a lead per session and an apprentice per sub-agent, in your colour.
+
+```
+ac fleet connect https://fleet.example.com --token <t> [--color '#4fb3ff'] [--name alex] [--hide-names]
+ac fleet status            # URL, token (last 4 chars), colour, paused, queue depth, last send / error
+ac fleet pause | resume    # the hook exits at once while paused
+ac fleet color '#ff8800'   # quote it: an unquoted # starts a shell comment
+ac fleet disconnect        # removes only the fleet hooks; deletes config and queue
+```
+
+Inside Claude Code, `/astro-fleet` runs the same verbs. Prefer the terminal for
+`connect`: a token typed into the session ends up in its transcript.
+
+- **Where things live:**
+  - the config is `~/.astro/fleet.json` (mode 0600);
+  - the hooks are in the user-level `settings.json` of every Claude config dir. Each one
+    is marked `# astro-fleet`, and a one-time `settings.json.bak-astro-fleet` is kept.
+- **What is sent:** activity only, never prompt text, tool inputs or outputs, or
+  transcript paths. That means session start and end, prompt, tool (at most one per 5 s),
+  waiting, stop and sub-agent start and stop, each with the project name, repo URL and
+  cwd. With `--hide-names`, the project is sent as `p-<hash>` with no repo URL or cwd.
+- **It never slows a session:** the hook appends to a local queue and exits.
+  - A detached flusher sends batches and backs off on errors.
+  - It stops on a refused token until you reconnect.
+  - `ac fleet status` shows the last error.
+
+---
+
 ## External knowledge graph (retired)
 
 astro-code used to make one opportunistic read against an external knowledge-graph MCP
@@ -686,6 +718,7 @@ astro-code itself captures (ADR-065). A forge server reads the store back read-o
 /astro-config             pick the model tier + reasoning depth per role
 /astro-status             where am I, and what's next?
 /astro-statusline         set a rich Claude Code statusline (milestone/phase track, context bar)
+/astro-fleet [status|connect …|pause|resume|color <hex>|disconnect]  report sessions to an Astro Fleet
 /astro-update             pull the latest astro-code and re-link it everywhere
 /astro-help               short guide: the loop, the commands, and how to go fast
 /astro-kit-new /astro-kit-convert /astro-kit-test /astro-kit-source /astro-kit-publish
@@ -757,6 +790,7 @@ ac decision add "<t>" --why …  # append an ADR-lite decision (shared)
 ac agents-md                   # refresh the astro-code block in AGENTS.md
 ac preflight                   # warn if HEAD diverged from upstream
 ac tune                        # apply recommended Claude settings (additive, `--undo`able)
+ac fleet connect <url> --token <t>  # report sessions to an Astro Fleet (see Astro Fleet)
 ac install | uninstall | update
 ```
 
