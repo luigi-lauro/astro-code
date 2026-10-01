@@ -22,7 +22,7 @@ import {
   findAstroRoot, readContext, renderSegment,
   readContextTokens, renderClaudeSegment, modelLimit,
   isBusy, renderStatus, termWidth, visibleWidth, truncateVisible, packStatus, renderSegmentParts, STATUS_SEP,
-  renderRateLimits, renderPromptCache,
+  renderRateLimits, renderPromptCache, readGaugeModes,
 } from './_astro-ctx.mjs';
 
 const HOME = join(homedir(), '.astro', 'code');
@@ -85,6 +85,10 @@ if (prev && typeof prev.command === 'string' && prev.command) {
 // as the row layout, so it is resolved before any of them.
 const cols = termWidth();
 
+// What each gauge (ctx, 5h, 7d, cap) shows — bar, percent or both — per user, from
+// ~/.astro/config.json. Width still decides whether bars fit at all; a mode only removes.
+const gauges = readGaugeModes();
+
 // The single line carries the gauge BARS when the whole line, bars included, fits the
 // terminal: measured below once every segment is known, with the branch at its FULL
 // length (a branch truncated to make room for bars is the C8 failure, not a fit).
@@ -113,8 +117,8 @@ if (data) {
   // window grows and modelLimit hasn't caught up. Claude Code's own figure is not second-guessed.
   if (!reportedWindow && tokens != null && limit && tokens > limit) limit = Math.max(1_000_000, tokens);
   // Drawn like the quota gauges and shed the same way: bar when the line fits it, number when not.
-  claude = renderClaudeSegment({ model: data.model, tokens, limit, bar: false });
-  claudeBarred = renderClaudeSegment({ model: data.model, tokens, limit, bar: true });
+  claude = renderClaudeSegment({ model: data.model, tokens, limit, bar: false, mode: gauges.ctx });
+  claudeBarred = renderClaudeSegment({ model: data.model, tokens, limit, bar: true, mode: gauges.ctx });
 }
 
 // (3) subscription rate-limit quota — how much of the rolling 5h/7d windows
@@ -130,8 +134,8 @@ if (data) {
 // to 145 columns and split a 110-column terminal into two rows: the bars were bought
 // with width the line did not have. Numbers alone still answer "how much is left",
 // which is the question; the bar is the luxury, so it is the first thing to go.
-let rateLimitsFull = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'numbers' }) : '';
-const rateLimitsBarred = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'full' }) : '';
+let rateLimitsFull = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'numbers', modes: gauges }) : '';
+const rateLimitsBarred = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'full', modes: gauges }) : '';
 
 // (4) prompt cache — warm until when, or cold and what the next turn re-writes, plus
 // the cause of a miss for a few minutes after it. On a single line without
@@ -198,7 +202,7 @@ const project = [identity, state].filter(Boolean).join(' · ');
 // no promotion to row 1 — this rides row 2 with branch/claude like every other
 // non-identity segment, shed wholesale by `packStatus`'s normal fit rules.
 const rlDetail = cols === 0 || cols >= 130 ? 'full' : cols >= 90 ? 'numbers' : 'hottest';
-const rateLimitsRow = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: rlDetail }) : '';
+const rateLimitsRow = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: rlDetail, modes: gauges }) : '';
 const cacheRow = data
   ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: cols === 0 || cols >= 130 ? 'full' : 'compact' })
   : '';

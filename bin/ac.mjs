@@ -67,6 +67,7 @@ import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
 import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames } from '../lib/install.mjs';
 import { readAgentTools, updateAgentTools } from '../lib/agenttools.mjs';
+import { GAUGES, GAUGE_MODES, readGaugeModes, setGaugeMode } from '../lib/statuslinegauges.mjs';
 import { applyTune, undoTune, tuneTarget, UNTUNABLE } from '../lib/tune.mjs';
 import { collectStats } from '../lib/stats.mjs';
 import { writeAgentsMd } from '../lib/agentsmd.mjs';
@@ -444,6 +445,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac registry show                    print the shared numbering registry
   ac tune [--user] [--undo]           apply astro-recommended Claude settings (additive, reversible)
   ac statusline [install|preview]     wire the rich statusline (recap·model·ctx-bar·M/P) or preview it
+  ac statusline gauges [<gauge|all> <both|bar|percent>]  what each gauge (ctx, 5h, 7d, cap) shows (~/.astro/config.json)
   ac install | uninstall              (un)install commands + agents into ~/.claude
   ac update [clone-path]              git pull + refresh the global CLI and commands
   ac path [sub]                       print the framework dir, symlinks resolved (e.g. ac path workflows)
@@ -2606,7 +2608,19 @@ async function main() {
         console.log('  takes effect on the next statusline repaint (a keystroke or the next turn).');
         return;
       }
-      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview`);
+      if (sub === 'gauges') {
+        // Per user, like agent_tools: `ac statusline gauges` shows, `<gauge|all> <mode>` sets.
+        if (pos.length > 1) {
+          if (pos.length !== 3) die(`usage: ac statusline gauges <${GAUGES.join('|')}|all> <${GAUGE_MODES.join('|')}>`);
+          const res = setGaugeMode({ gauge: pos[1], mode: pos[2] });
+          if (!res.ok) die(res.error);
+          console.log(`✓ ${pos[1]} → ${pos[2]}  (~/.astro/config.json; next statusline repaint)`);
+        }
+        const modes = readGaugeModes();
+        for (const g of GAUGES) console.log(`  ${g.padEnd(4)} ${modes[g]}`);
+        return;
+      }
+      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview | gauges`);
       // Render the real hook against a representative Claude stdin blob so the
       // preview is WYSIWYG (dot + bar included). A tiny synthetic transcript drives
       // the recap + context-fill; --tokens/--model/--recap override the samples.
@@ -2623,6 +2637,8 @@ async function main() {
       const now = Math.floor(Date.now() / 1000);
       const rec = flags.idle ? { prompt: now - 10, stop: now } : { prompt: now, at: now };
       writeFileSync(join(previewHome, '.astro', 'code', 'session-state.json'), JSON.stringify({ preview: rec }));
+      // …and the user's gauge modes, so the preview draws what their real line will.
+      writeFileSync(join(previewHome, '.astro', 'config.json'), JSON.stringify({ statusline: { gauges: readGaugeModes() } }));
       // seed the version file so the preview shows the ⊡ astro v<version> mark like the real line
       try { const v = (JSON.parse(readFileSync(join(FRAMEWORK_ROOT, 'package.json'), 'utf8')) || {}).version; if (v) writeFileSync(join(previewHome, '.astro', 'code', 'version'), v + '\n'); } catch { /* best-effort */ }
       const blob = {

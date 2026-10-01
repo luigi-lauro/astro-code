@@ -604,19 +604,46 @@ export function rampColor(fraction) {
 // the percent answers "how full", and the denominator was 1M on every current model.
 // `tokens`/`limit` may be null (no transcript yet) → only the model shows. Empty
 // when there's no model at all.
-export function renderClaudeSegment({ model, tokens, limit, bar = true } = {}) {
+export function renderClaudeSegment({ model, tokens, limit, bar = true, mode = 'both' } = {}) {
   const parts = [];
   const name = model && (model.display_name || model.id);
   if (name) parts.push(paint(name, ANSI.cyan));
   if (tokens != null && limit) {
     const f = tokens / limit;
     const col = rampColor(f);
-    const bits = ['ctx'];
-    if (bar) bits.push(paint(progressBar(f, RATE_LIMIT_BAR_WIDTH), col));
-    bits.push(paint(`${Math.round(f * 100)}%`, col));
+    const bits = ['ctx', ...gaugeBits(paint(progressBar(f, RATE_LIMIT_BAR_WIDTH), col), paint(`${Math.round(f * 100)}%`, col), mode, bar)];
     parts.push(bits.join(' '));
   }
   return parts.join(' ');
+}
+
+// --- gauge display modes ------------------------------------------------------
+// Each gauge — ctx, 5h, 7d, cap — can show its bar, its percent, or both. Set per USER
+// in `~/.astro/config.json` (`ac statusline gauges`, the only writer), because the
+// statusline is installed once per machine and draws every project the same way:
+//
+//   { "statusline": { "gauges": { "5h": "percent", "7d": "percent" } } }
+//
+// A mode only ever REMOVES something from what the width allows. When the line has no
+// room for bars (`bar: false`), every gauge shows its percent — `bar` included, which
+// falls back to the number rather than vanishing, since the number is the answer and the
+// bar the luxury. Absent, unknown or malformed values read as `both`, the old behaviour.
+export const GAUGES = ['ctx', '5h', '7d', 'cap'];
+export const GAUGE_MODES = ['both', 'bar', 'percent'];
+
+export function readGaugeModes(home = homedir()) {
+  const modes = Object.fromEntries(GAUGES.map((g) => [g, 'both']));
+  const cfg = readJson(join(home, '.astro', 'config.json'));
+  const set = cfg && cfg.statusline && cfg.statusline.gauges;
+  if (set && typeof set === 'object') {
+    for (const g of GAUGES) if (GAUGE_MODES.includes(set[g])) modes[g] = set[g];
+  }
+  return modes;
+}
+
+function gaugeBits(barText, pctText, mode, bar) {
+  if (!bar || mode === 'percent') return [pctText];
+  return mode === 'bar' ? [barText] : [barText, pctText];
 }
 
 // --- rate-limit quota gauge ---------------------------------------------------
@@ -709,14 +736,13 @@ function renderWindowBar(w, nowSeconds) {
     + paint(used, tailCol) + paint(after.slice(used.length), col);
 }
 
-// One window's rendering at a given detail: `bar` toggles the graphical fill
-// (D4 sheds bars before numbers); the reset countdown only ever appears once
+// One window's rendering at a given detail: `bar` says whether the line has room for
+// the graphical fill (D4 sheds bars before numbers), `mode` what the user wants of it
+// (gaugeBits); the reset countdown only ever appears once
 // the window is hot (D2/D6).
-function renderWindow(w, bar, nowSeconds) {
+function renderWindow(w, bar, nowSeconds, mode) {
   const col = rampColor(w.pct / 100);
-  const bits = [w.label];
-  if (bar) bits.push(renderWindowBar(w, nowSeconds));
-  bits.push(paint(`${Math.round(w.pct)}%`, col));
+  const bits = [w.label, ...gaugeBits(renderWindowBar(w, nowSeconds), paint(`${Math.round(w.pct)}%`, col), mode, bar)];
   let out = bits.join(' ');
   if (isHotWindow(w.pct) && validPct(w.resetsAt)) {
     out += ` ·${formatETA(w.resetsAt, nowSeconds)}`;
@@ -730,12 +756,9 @@ function renderWindow(w, bar, nowSeconds) {
 
 // The spend cap: costs nothing when absent (D3). `used_percentage` may exceed
 // 100 — the text keeps climbing while `progressBar` (already clamped) stops.
-function renderSpend(pct, bar) {
+function renderSpend(pct, bar, mode) {
   const col = rampColor(Math.min(1, pct / 100));
-  const bits = ['cap'];
-  if (bar) bits.push(paint(progressBar(pct / 100, RATE_LIMIT_BAR_WIDTH), col));
-  bits.push(paint(`${Math.round(pct)}%`, col));
-  return bits.join(' ');
+  return ['cap', ...gaugeBits(paint(progressBar(pct / 100, RATE_LIMIT_BAR_WIDTH), col), paint(`${Math.round(pct)}%`, col), mode, bar)].join(' ');
 }
 
 /**
@@ -749,8 +772,11 @@ function renderSpend(pct, bar) {
  * D4's narrow-degradation order: bars go before numbers, and the windows are
  * sorted hottest-first so a shrinking line sheds the COOLEST window first —
  * the one nearest its limit is what survives.
+ *
+ * `modes` maps a gauge (`5h`, `7d`, `cap`) to its display mode (see GAUGE_MODES);
+ * a gauge it does not name shows both.
  */
-export function renderRateLimits({ rateLimits, nowSeconds = Math.floor(Date.now() / 1000), width, detail } = {}) {
+export function renderRateLimits({ rateLimits, nowSeconds = Math.floor(Date.now() / 1000), width, detail, modes = {} } = {}) {
   if (!rateLimits || typeof rateLimits !== 'object') return '';
 
   const windows = ['five_hour', 'seven_day']
@@ -766,17 +792,17 @@ export function renderRateLimits({ rateLimits, nowSeconds = Math.floor(Date.now(
   const tiers = [];
   if (windows.length) {
     tiers.push(() => [
-      ...windows.map((w) => renderWindow(w, true, nowSeconds)),
-      ...(spend != null ? [renderSpend(spend, true)] : []),
+      ...windows.map((w) => renderWindow(w, true, nowSeconds, modes[w.label])),
+      ...(spend != null ? [renderSpend(spend, true, modes.cap)] : []),
     ]);
     tiers.push(() => [
-      ...windows.map((w) => renderWindow(w, false, nowSeconds)),
-      ...(spend != null ? [renderSpend(spend, false)] : []),
+      ...windows.map((w) => renderWindow(w, false, nowSeconds, modes[w.label])),
+      ...(spend != null ? [renderSpend(spend, false, modes.cap)] : []),
     ]);
-    tiers.push(() => [renderWindow(windows[0], false, nowSeconds)]);
+    tiers.push(() => [renderWindow(windows[0], false, nowSeconds, modes[windows[0].label])]);
   } else {
-    tiers.push(() => [renderSpend(spend, true)]);
-    tiers.push(() => [renderSpend(spend, false)]);
+    tiers.push(() => [renderSpend(spend, true, modes.cap)]);
+    tiers.push(() => [renderSpend(spend, false, modes.cap)]);
   }
   const TIER_NAMES = windows.length ? ['full', 'numbers', 'hottest'] : ['full', 'numbers'];
 

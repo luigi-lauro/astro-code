@@ -99,6 +99,22 @@ the verifier can't be given `Write` this way. A bad entry is reported and skippe
 breaks an install. A config dir whose `agents/` *is* the source checkout (a self-hosted dev
 setup) reads the shipped files directly, and `ac install` says so.
 
+### What the statusline gauges show
+
+The statusline's four gauges — **ctx** (context fill), **5h** and **7d** (quota windows) and
+**cap** (spend cap) — each show their bar, their percent, or both (the default). Pick with
+`/astro-config statusline`, or from a shell:
+
+```bash
+ac statusline gauges                  # what each gauge shows now
+ac statusline gauges 5h percent       # one gauge: ctx | 5h | 7d | cap
+ac statusline gauges all both         # every gauge back to the default
+```
+
+Width still wins: on a line too narrow for bars every gauge shows its percent, so a gauge set
+to `bar` falls back to its number instead of disappearing. Like `agent_tools`, it is per user
+and lives in **`~/.astro/config.json`** (`{ "statusline": { "gauges": { "5h": "percent" } } }`).
+
 ### Windows / PowerShell
 
 `ac` is shadowed by PowerShell's built-in `Add-Content` alias (aliases beat external
