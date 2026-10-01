@@ -1799,20 +1799,6 @@ def check_sources(root: Path, manifest: dict | None, rep: Report) -> None:
             rep.fail("sources", "SRC-14", f"{source_id}: adhoc is false but declares zero named queries")
 
 
-def _strip_table_brackets(key: str) -> str:
-    """Per-"."-part bracket stripping, case preserved (mirrors
-    `_normalize_table_key` minus the lowercasing) — this is the glob Astro's
-    introspect `include` expects: `[dbo].[Orders]` -> `dbo.Orders`."""
-    parts = []
-    for part in key.split("."):
-        if part.startswith("["):
-            part = part[1:]
-        if part.endswith("]"):
-            part = part[:-1]
-        parts.append(part)
-    return ".".join(parts)
-
-
 def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> None:
     """SRC-20..24 (C9, C10, design PLAN.md §4) — only reached with `--live`.
     For each declared source: POST the introspect contract (ADR-022) to the
@@ -1861,7 +1847,10 @@ def check_sources_live(root: Path, manifest: dict | None, rep: Report, args) -> 
             continue
         tables = data.get("tables") if isinstance(data, dict) else None
         tables = tables if isinstance(tables, dict) else {}
-        include = sorted({_strip_table_brackets(k) for k in tables.keys()})
+        # Sent exactly as documented: Astro's scope globs take a bracketed
+        # part as a literal name, so `[dbo].[Order Lines]` matches that table
+        # and nothing else.
+        include = sorted(tables.keys())
 
         queries: list[dict] = []
         queries_dir = src_dir / "queries"

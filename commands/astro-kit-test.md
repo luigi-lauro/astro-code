@@ -124,11 +124,11 @@ Credentials come from env vars only, the same ones `/astro-kit-source` uses — 
 argv:
 - `ASTRO_BASE_URL`, `ASTRO_ADMIN_EMAIL`, `ASTRO_ADMIN_PASSWORD` for the instance call;
 - for a source with no binding yet, the one-off `ASTRO_SOURCE_<ID>_HOST`, `_PORT`,
-  `_DATABASE`, `_USER`, `_PASSWORD`, `_TRUST_SERVER_CERTIFICATE` (`<ID>` = the source
+  `_DATABASE`, `_USERNAME`, `_PASSWORD`, `_TRUST_SERVER_CERTIFICATE` (`<ID>` = the source
   id upper-cased, non-alphanumerics turned into `_`).
 
 ```bash
-ASTRO_ADMIN_PASSWORD='<password>' python3 tools/kit_test.py --live --base <instance URL>
+ASTRO_BASE_URL='<instance URL>' ASTRO_ADMIN_PASSWORD='<password>' python3 tools/kit_test.py --live
 ```
 
 New failures reported under the `live` group:

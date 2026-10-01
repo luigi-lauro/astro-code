@@ -69,6 +69,33 @@ def _table_key(schema: str, name: str) -> str:
     return f"[{schema}].[{name}]"
 
 
+def _ident(part: str) -> str:
+    return part if _BARE_IDENT_RE.match(part) else f"[{part}]"
+
+
+def _joins_ref(fk: dict) -> str:
+    return f"{_table_key(fk['refSchema'], fk['refTable'])}.{_ident(fk['refColumns'][0])}"
+
+
+def _unbracket(part: str) -> str:
+    return part[1:-1] if part.startswith("[") and part.endswith("]") else part
+
+
+def _sensitive_columns(existing: dict | None) -> list[str]:
+    """`schema.table.column` (raw names, no brackets) for every column the
+    local schema.json marks `sensitive: true` — sent so the instance skips
+    them even before this schema.json has been uploaded."""
+    out: list[str] = []
+    for key, table in ((existing or {}).get("tables") or {}).items():
+        m = re.fullmatch(r"(\[[^\]]+\]|[^.\[\]]+)\.(\[[^\]]+\]|[^.\[\]]+)", key)
+        if not m or not isinstance(table, dict):
+            continue
+        for col_name, col in (table.get("columns") or {}).items():
+            if isinstance(col, dict) and col.get("sensitive") is True:
+                out.append(f"{_unbracket(m.group(1))}.{_unbracket(m.group(2))}.{col_name}")
+    return sorted(out)
+
+
 def _resolve_kit_id(root: Path) -> str:
     """Mirrors publish_kit.py's load_manifest/build_upload_manifest: prefer
     registry-entry.json's `id`, else kit.json's `name` (which IS the id)."""
@@ -122,7 +149,7 @@ def _new_table_entry(obj: dict, sample_values: bool) -> dict:
             col_entry["key"] = True
         fk = single_col_fks.get(name)
         if fk:
-            col_entry["joins"] = f"{fk['refSchema']}.{fk['refTable']}.{fk['refColumns'][0]}"
+            col_entry["joins"] = _joins_ref(fk)
         values = col.get("values")
         if sample_values and values:
             col_entry["values"] = {v: "" for v in values}
@@ -163,7 +190,7 @@ def _merge_table_entry(existing: dict, obj: dict, sample_values: bool) -> dict:
                 col_entry["key"] = True
             fk = single_col_fks.get(name)
             if fk:
-                col_entry["joins"] = f"{fk['refSchema']}.{fk['refTable']}.{fk['refColumns'][0]}"
+                col_entry["joins"] = _joins_ref(fk)
             values = col.get("values")
             if sample_values and values:
                 col_entry["values"] = {v: "" for v in values}
@@ -173,13 +200,11 @@ def _merge_table_entry(existing: dict, obj: dict, sample_values: bool) -> dict:
             col_entry["type"] = col["sqlType"]
             if name in pk_columns:
                 col_entry["key"] = True
-            else:
-                col_entry.pop("key", None)
             if "joins" not in col_entry:
                 fk = single_col_fks.get(name)
                 if fk:
-                    col_entry["joins"] = f"{fk['refSchema']}.{fk['refTable']}.{fk['refColumns'][0]}"
-            if "values" not in col_entry:
+                    col_entry["joins"] = _joins_ref(fk)
+            if "values" not in col_entry and col_entry.get("sensitive") is not True:
                 values = col.get("values")
                 if sample_values and values:
                     col_entry["values"] = {v: "" for v in values}
@@ -194,7 +219,7 @@ def build_schema(existing: dict | None, objects: list[dict], sample_values: bool
     """Returns (merged schema dict, report). `report` has `added` (tables,
     columns), `flagged` (tables, columns gone from the database) and
     `typeChanges` ([{table, column, old, new}])."""
-    report = {"added_tables": [], "added_columns": [], "flagged_tables": [], "flagged_columns": [], "type_changes": [], "sampled": []}
+    report = {"added_tables": [], "added_columns": [], "flagged_tables": [], "flagged_columns": [], "type_changes": [], "sampled": [], "kept_keys": []}
 
     existing_tables: dict = dict(existing.get("tables") or {}) if existing else {}
     by_norm = {_normalize_table_key(k): k for k in existing_tables}
@@ -228,6 +253,15 @@ def build_schema(existing: dict | None, objects: list[dict], sample_values: bool
                         report["sampled"].append(f"{existing_key}.{col['name']}")
                 else:
                     prior_name, prior_entry = prior
+                    if prior_entry.get("key") is True and col["name"] not in set(obj.get("primaryKey") or []):
+                        report["kept_keys"].append(f"{existing_key}.{col['name']}")
+                    if (
+                        sample_values
+                        and col.get("values")
+                        and "values" not in prior_entry
+                        and prior_entry.get("sensitive") is not True
+                    ):
+                        report["sampled"].append(f"{existing_key}.{col['name']}")
                     old_type = prior_entry.get("type")
                     if old_type is not None and old_type != col["sqlType"]:
                         report["type_changes"].append(
@@ -304,6 +338,10 @@ def _print_summary(report: dict, source_md_created: bool, source_id: str) -> Non
         astro.log("type changes:")
         for ch in report["type_changes"]:
             astro.log(f"  {ch['table']}.{ch['column']} {ch['old']} → {ch['new']}")
+    if report["kept_keys"]:
+        astro.log("kept author key (not in the database's primary key — check it still holds):")
+        for c in report["kept_keys"]:
+            astro.log(f"  column {c}")
     if report["sampled"]:
         astro.log("sampled values (review before publishing — they ship in the kit):")
         for c in report["sampled"]:
@@ -355,6 +393,17 @@ def main() -> int:
 
     kit_id = _resolve_kit_id(root)
 
+    src_dir = root / "src" / "sources" / args.source_id
+    schema_path = src_dir / "schema.json"
+    source_md_path = src_dir / "SOURCE.md"
+
+    existing: dict | None = None
+    if schema_path.is_file():
+        try:
+            existing = load_source_schema_json(schema_path.read_bytes())
+        except (SourceSchemaParseError, ValueError) as exc:
+            astro.die(2, f"existing schema.json is not valid: {exc}")
+
     token = astro.login(base, email, password)
 
     body: dict = {"sampleValues": bool(args.sample_values)}
@@ -362,6 +411,9 @@ def main() -> int:
         body["include"] = args.include
     if args.exclude:
         body["exclude"] = args.exclude
+    sensitive = _sensitive_columns(existing)
+    if sensitive:
+        body["sensitiveColumns"] = sensitive
     if one_off:
         body["connection"] = one_off
 
@@ -377,17 +429,6 @@ def main() -> int:
 
     objects = resp.get("objects") or []
     database = resp.get("database") or ""
-
-    src_dir = root / "src" / "sources" / args.source_id
-    schema_path = src_dir / "schema.json"
-    source_md_path = src_dir / "SOURCE.md"
-
-    existing: dict | None = None
-    if schema_path.is_file():
-        try:
-            existing = load_source_schema_json(schema_path.read_bytes())
-        except (SourceSchemaParseError, ValueError) as exc:
-            astro.die(2, f"existing schema.json is not valid: {exc}")
 
     merged, report = build_schema(existing, objects, args.sample_values)
 

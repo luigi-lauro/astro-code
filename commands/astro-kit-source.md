@@ -24,11 +24,11 @@ one.**
 
 2. **Collect credentials via env — there is no password flag.** The tool accepts no
    password on the command line at all; it reads:
-   - `ASTRO_BASE_URL` (or pass the instance URL positionally), `ASTRO_ADMIN_EMAIL`,
+   - `ASTRO_BASE_URL` (or `--base <instance URL>`), `ASTRO_ADMIN_EMAIL`,
      `ASTRO_ADMIN_PASSWORD` — the admin account used to call the instance's
      introspect endpoint.
    - For a one-off connection (no binding yet, or the kit isn't uploaded):
-     `ASTRO_SOURCE_<ID>_HOST`, `_PORT` (default 1433), `_DATABASE`, `_USER`,
+     `ASTRO_SOURCE_<ID>_HOST`, `_PORT` (default 1433), `_DATABASE`, `_USERNAME`,
      `_PASSWORD`, `_TRUST_SERVER_CERTIFICATE` (`1`/`true`), where `<ID>` is the
      source id upper-cased with every non-alphanumeric character turned into `_`.
      If the source is already bound (saved + last test ok), the bound connection is
