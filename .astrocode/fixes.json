@@ -22,14 +22,20 @@
     {
       "id": "2026-10-01-execute-phase-dispatches-dependents-of",
       "title": "execute-phase dispatches dependents of a blocked task",
-      "status": "verified",
-      "opened_at": "2026-10-01T07:14:52.036Z"
+      "status": "accepted",
+      "opened_at": "2026-10-01T07:14:52.036Z",
+      "accepted_at": "2026-10-01T07:25:20.086Z",
+      "accepted_kind": "human",
+      "accepted_by": "matteo.alvazzi@gmail.com"
     },
     {
       "id": "2026-10-01-phase-slug-unbounded-enametoolong",
       "title": "phase slug unbounded ENAMETOOLONG",
-      "status": "verified",
-      "opened_at": "2026-10-01T07:10:46.578Z"
+      "status": "accepted",
+      "opened_at": "2026-10-01T07:10:46.578Z",
+      "accepted_at": "2026-10-01T07:25:16.761Z",
+      "accepted_kind": "human",
+      "accepted_by": "matteo.alvazzi@gmail.com"
     }
   ]
 }
