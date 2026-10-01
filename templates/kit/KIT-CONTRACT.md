@@ -240,6 +240,54 @@ Every rejection names the check ID plus the source id, file, param or column inv
 | SRC-14 | FAIL | `adhoc: false` on a source with zero named queries |
 | SRC-15 | FAIL | Body carries a locking/isolation hint (`WITH (NOLOCK)`, `(NOLOCK)`, `READUNCOMMITTED`, `READPAST`, `UPDLOCK`, …) or `SET TRANSACTION ISOLATION LEVEL` — queries always run READ COMMITTED. Comments and string literals are ignored; a column named like a hint must be bracketed (`[Snapshot]`) |
 
+### Writing a good source
+
+The checks above prove a source is well-formed; they cannot prove an agent will query it
+correctly. The reader of every file below is an agent that has never seen this database
+— write what it cannot infer from column names. `/astro-kit-source <id>` drafts the
+skeleton; the knowledge is yours to add.
+
+**`SOURCE.md`** — short prose, in this order:
+
+- **Purpose** — what the database is, and when an agent should (and should NOT) query it.
+- **Which tables answer which questions** — "open orders per customer → `dbo.Orders`
+  joined to `dbo.Customers`", not a restated table list.
+- **Grain** — what one row means in each table the kit uses (one order line, one
+  snapshot per day, …). Wrong grain is the usual cause of double counting.
+- **Filters that must always apply** — soft-deletes (`IsDeleted = 0`), status codes,
+  test/internal tenants, the current-version flag.
+- **Units and currency** — which amounts are net or gross, in which currency, cents or units.
+- **Time zones** — per family of date columns (UTC vs local server time vs business date).
+- **Known traps** — columns that lie, legacy codes, tables that look right but are stale.
+
+**`schema.json`** — `purpose` and `meaning` say what a value is *for*, not its type
+(`"Order total incl. VAT, EUR"`, not `"decimal"`). Put the always-apply filters in the
+table's `rules`, every code a column takes in `values`, the unit and time zone in `unit`
+and `tz`, and mark personal or confidential columns `sensitive: true`. Describe only the
+tables the kit needs — a smaller schema is a sharper one.
+
+**Named queries** — one per recurring question the recipe asks, and nothing speculative:
+
+- deterministic — an explicit `ORDER BY` and no `GETDATE()` hidden in the body; pass
+  the date in as a typed `@param` instead;
+- `@returns` matches the live result exactly (name, order, type) — the run fails otherwise;
+- `@max_rows` set to the most rows the question can legitimately return;
+- aggregate in SQL — return the totals the report needs, not raw rows for a script to sum.
+
+**`adhoc`** — set `adhoc: false` on production databases, on sources holding sensitive
+data, and in kits whose questions are fully known: the agent can then run only the named
+queries. Leave it on (the default) for exploratory kits where the questions vary per run.
+
+**How a run consumes it** — the agent reads the source through `DescribeSource`
+(`SOURCE.md`, `schema.json`, live drift) and queries it through `QuerySource` (a named
+`query` or ad-hoc `sql`, with `params`, `maxRows` and an `outputPath` `.csv`/`.jsonl` under
+`_report/`). Kit scripts call the `astro-query` CLI or the stdlib `astro_sources.py`
+(`astro_sources.query(source, name, out=…, **params)`), which exist only inside the Astro
+worker. UseKit's post-load summary already gives the agent the generic working rules —
+read before SQL, prefer named queries, aggregate in SQL, `outputPath` for anything a
+script reads, cite queryIds — so the kit's `CLAUDE.md` states only how *this* kit uses
+its sources.
+
 ## The recipe (`src/recipes/<id>.yaml`)
 
 The recipe is the kit's execution contract: `name`, `description`, `version`, and a
