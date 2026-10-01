@@ -655,6 +655,9 @@ function buildWindow(key, data) {
 // a 5h window say nothing), and only when it overshoots; null otherwise.
 const RATE_LIMIT_WINDOW_SECONDS = { five_hour: 5 * 3600, seven_day: 7 * 86_400 };
 const PACE_MIN_ELAPSED = 0.1;
+// Overshoot (in points) at or below which the window is shown on track: no ⚠ tail, no
+// pace colour on the bar. Matches the dim band of paceColor.
+const PACE_TAIL_MIN = 5;
 // The elapsed share of a window (0..1), or null when it is not judged: no window
 // length, no `resets_at`, or less than PACE_MIN_ELAPSED of it gone.
 function elapsedShare(key, resetsAt, nowSeconds) {
@@ -699,7 +702,7 @@ function renderWindowBar(w, nowSeconds) {
   if (share == null) return paint(bar.join(''), col);
   const mark = Math.min(RATE_LIMIT_BAR_WIDTH - 1, Math.floor(share * RATE_LIMIT_BAR_WIDTH));
   const over = paceOvershoot(w.key, w.pct, w.resetsAt, nowSeconds);
-  const tailCol = over > 5 && col !== ANSI.red ? paceColor(over) : col;
+  const tailCol = over > PACE_TAIL_MIN && col !== ANSI.red ? paceColor(over) : col;
   const after = bar.slice(mark + 1).join('');
   const used = after.replace(/░+$/, '');
   return paint(bar.slice(0, mark).join(''), col) + paint(PACE_MARK, ANSI.bold)
@@ -718,8 +721,10 @@ function renderWindow(w, bar, nowSeconds) {
   if (isHotWindow(w.pct) && validPct(w.resetsAt)) {
     out += ` ·${formatETA(w.resetsAt, nowSeconds)}`;
   }
+  // The ⚠ tail only past the dim band: a warning for 1-5% over pace is noise, and the
+  // bar's tail colour already starts at the same 5% line.
   const over = paceOvershoot(w.key, w.pct, w.resetsAt, nowSeconds);
-  if (over != null) out += ` ${paint(`⚠ pace +${Math.round(over)}%`, paceColor(over))}`;
+  if (over != null && over > PACE_TAIL_MIN) out += ` ${paint(`⚠ pace +${Math.round(over)}%`, paceColor(over))}`;
   return out;
 }
 

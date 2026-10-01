@@ -407,6 +407,17 @@ test('renderRateLimits appends each outpacing window its pace, in every tier tha
   assert.equal(both, '5h 60% ⚠ pace +20% · 7d 50% ⚠ pace +17%', 'both windows outpacing at once');
 });
 
+test('a window up to 5% over pace shows no warning tail; just past it, it does', () => {
+  const now = 1_000_000_000;
+  const day = 86_400;
+  const plain = (pct) => renderRateLimits({ rateLimits: { seven_day: { used_percentage: pct, resets_at: now + 4 * day } },
+    nowSeconds: now, detail: 'numbers' }).replace(/\x1b\[[0-9;]*m/g, '');
+  // 3 of 7 days gone: 44% projects 102.7% (+2.7), 45% projects 105% (+5), 46% projects 107.3% (+7.3).
+  assert.equal(plain(44), '7d 44%', '+2.7 over pace is noise, not a warning');
+  assert.equal(plain(45), '7d 45%', 'exactly +5 is still the dim band');
+  assert.equal(plain(46), '7d 46% ⚠ pace +7%');
+});
+
 test('a judged window\'s bar carries a one-cell pace marker at the elapsed share, without widening it', () => {
   const now = 1_000_000_000;
   const day = 86_400;
@@ -963,7 +974,7 @@ test('outside a project the single line keeps its bars whenever it fits them, br
   const at147 = render(147);
   assert.equal(at147.split('\n').length, 1, `one line at 147:\n${at147}`);
   assert.match(at147, /ctx [█░]{5} 52%/, `the context bar at 147:\n${at147}`);
-  assert.match(at147, /7d [█░]{5} 62%/, `the quota bars at 147:\n${at147}`);
+  assert.match(at147, /7d [█░▏]{5} 62%/, `the quota bars at 147:\n${at147}`);
   assert.match(at147, /⎇ main/, 'the branch in full');
 
   // Exactly as wide as the line with bars: bars. One column less: numbers, never a cut branch.
