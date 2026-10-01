@@ -18,6 +18,12 @@
       "accepted_at": "2026-09-20T16:42:56.279Z",
       "accepted_kind": "human",
       "accepted_by": "matteo.alvazzi@gmail.com"
+    },
+    {
+      "id": "2026-10-01-phase-slug-unbounded-enametoolong",
+      "title": "phase slug unbounded ENAMETOOLONG",
+      "status": "verified",
+      "opened_at": "2026-10-01T07:10:46.578Z"
     }
   ]
 }
