@@ -2436,7 +2436,7 @@ test('t3 (phase 13): batchPrompt opens with a MULTI-TASK-BATCH override of the a
   const wfSrc = readFileSync(WF_FILE, 'utf8')
   const startIdx = wfSrc.indexOf('const batchPrompt')
   assert.ok(startIdx !== -1, 'batchPrompt not found in execute-phase.mjs')
-  const window = wfSrc.slice(startIdx, startIdx + 3200)
+  const window = wfSrc.slice(startIdx, startIdx + 3600)
 
   assert.ok(window.includes('MULTI-TASK BATCH'), 'batchPrompt must open with an emphatic MULTI-TASK BATCH override')
   assert.ok(
@@ -2452,7 +2452,7 @@ test('t3 (phase 13): batchPrompt inlines the ordered task list as a trimmed JSON
   const wfSrc = readFileSync(WF_FILE, 'utf8')
   const startIdx = wfSrc.indexOf('const batchPrompt')
   assert.ok(startIdx !== -1, 'batchPrompt not found in execute-phase.mjs')
-  const window = wfSrc.slice(startIdx, startIdx + 3200)
+  const window = wfSrc.slice(startIdx, startIdx + 3600)
 
   assert.ok(
     window.includes(
@@ -2466,7 +2466,7 @@ test('t3 (phase 13): batchPrompt requires a per-task (phase NN <taskId>) stamp a
   const wfSrc = readFileSync(WF_FILE, 'utf8')
   const startIdx = wfSrc.indexOf('const batchPrompt')
   assert.ok(startIdx !== -1, 'batchPrompt not found in execute-phase.mjs')
-  const window = wfSrc.slice(startIdx, startIdx + 3200)
+  const window = wfSrc.slice(startIdx, startIdx + 3600)
 
   assert.ok(window.includes('(phase ${phaseNum} <taskId>)'), 'batchPrompt must require the per-task stamp `(phase ${phaseNum} <taskId>)`')
   assert.ok(window.includes('DO NOT squash'), 'batchPrompt must explicitly forbid squashing multiple tasks into one commit')
@@ -2480,7 +2480,7 @@ test('t3 (phase 13): batchPrompt instructs mechanical committed derivation via t
   const wfSrc = readFileSync(WF_FILE, 'utf8')
   const startIdx = wfSrc.indexOf('const batchPrompt')
   assert.ok(startIdx !== -1, 'batchPrompt not found in execute-phase.mjs')
-  const window = wfSrc.slice(startIdx, startIdx + 3200)
+  const window = wfSrc.slice(startIdx, startIdx + 3600)
 
   assert.ok(window.includes('MECHANICALLY'), 'batchPrompt must instruct MECHANICAL derivation of committed (not self-belief)')
   assert.ok(
@@ -2658,10 +2658,13 @@ async function runWorkflow(args, { discoverTasks, batchCommitted, integ, gate, a
     }
     if ('missing' in props) return audit || { missing: [] }   // ADR-040 stamp audit
     if ('removed' in props && teardown) return teardown          // #25 heal teardown, when a test supplies it
-    // #21 — a parallel executor reports its branch/commit; tests opt in per task id
+    // #21 — a parallel executor reports its branch/commit; tests opt in per task id.
+    // #100 — an on-branch executor reports them too, and landed by default: a commit-less
+    // on-branch run now stops its dependents, so a test opts into that per task id.
     if ('branch' in props && 'commit' in props) {
       const id = (prompt.match(/^Implement task (\S+)/) || [])[1]
-      return { summary: 'done', branch: null, commit: null, ...((execReports && execReports[id]) || {}) }
+      const landed = opts.isolation === 'worktree' ? { branch: null, commit: null } : { branch: 'main', commit: `sha-${id}` }
+      return { summary: 'done', ...landed, ...((execReports && execReports[id]) || {}) }
     }
     if ('integrated' in props) return integ || { integrated: true, branches: [] }
     if ('criteriaFound' in props) return { passed: true, criteriaFound: true, summary: 'ok', criteria: [] }
