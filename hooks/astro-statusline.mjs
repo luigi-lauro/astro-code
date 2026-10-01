@@ -112,7 +112,7 @@ if (data) {
   // misleading >100% reading (the 236% bug) structurally impossible even if a model's
   // window grows and modelLimit hasn't caught up. Claude Code's own figure is not second-guessed.
   if (!reportedWindow && tokens != null && limit && tokens > limit) limit = Math.max(1_000_000, tokens);
-  // Drawn like the quota gauges and shed the same way: bar above the floor, number below.
+  // Drawn like the quota gauges and shed the same way: bar when the line fits it, number when not.
   claude = renderClaudeSegment({ model: data.model, tokens, limit, bar: false });
   claudeBarred = renderClaudeSegment({ model: data.model, tokens, limit, bar: true });
 }
@@ -125,7 +125,7 @@ if (data) {
 // for the row layout — the same lookahead-ladder shape `lookahead` below uses,
 // so a shrinking screen sheds bars, then all-but-the-hottest window (D4),
 // never a slice mid-token.
-// The single line carries BARS only when the terminal is wide enough to hold them.
+// The single line carries BARS only when the whole line fits with them (decided below).
 // It used to ask for `full` unconditionally, which is what pushed the one-line render
 // to 145 columns and split a 110-column terminal into two rows: the bars were bought
 // with width the line did not have. Numbers alone still answer "how much is left",
@@ -134,8 +134,8 @@ let rateLimitsFull = data ? renderRateLimits({ rateLimits: data.rate_limits, now
 const rateLimitsBarred = data ? renderRateLimits({ rateLimits: data.rate_limits, nowSeconds, detail: 'full' }) : '';
 
 // (4) prompt cache — warm until when, or cold and what the next turn re-writes, plus
-// the cause of a miss for a few minutes after it. On the single line below the bar
-// floor it gets ONE fact (the `minimal` tier), and further down it is dropped from the
+// the cause of a miss for a few minutes after it. On a single line without
+// bars it gets ONE fact (the `minimal` tier), and further down it is dropped from the
 // single line rather than being the segment that forces a second row — see below.
 let cacheWide = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: 'minimal' }) : '';
 const cacheBarred = data ? renderPromptCache({ promptCache: data.prompt_cache, nowSeconds, detail: 'full' }) : '';
@@ -231,10 +231,6 @@ const stateFitsRow1 = !rowWidth ||
 // mistakes it for the whole name. Below a floor it is dropped instead — three characters
 // and an ellipsis is worse than silence.
 const BRANCH_MIN = 12;
-// The cache is the one segment allowed to vanish from the single line to keep it single:
-// a cold cache costs tokens, a second row costs the layout every render. If the other
-// bounded segments fit but adding the cache would not, it goes. When the line is going
-// to split regardless, it keeps its place and rides row 2 via `cacheRow`.
 // The bar tier for the single line, now that every segment is known: the whole line
 // with bars and the branch untruncated must fit the row. Unknown width (0) keeps bars.
 if (!barsFit) {
@@ -246,6 +242,10 @@ if (barsFit) {
   rateLimitsFull = rateLimitsBarred;
   cacheWide = cacheBarred;
 }
+// The cache is the one segment allowed to vanish from the single line to keep it single:
+// a cold cache costs tokens, a second row costs the layout every render. If the other
+// bounded segments fit but adding the cache would not, it goes. When the line is going
+// to split regardless, it keeps its place and rides row 2 via `cacheRow`.
 if (cacheWide && rowWidth) {
   const without = [base, claude, rateLimitsFull, project, update].filter(Boolean);
   const fitsWithout = visibleWidth(without.join(STATUS_SEP)) <= rowWidth;
