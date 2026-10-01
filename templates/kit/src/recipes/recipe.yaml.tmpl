@@ -32,6 +32,16 @@ phases:
   - name: work
     goal: >
       {{WORK_PHASE_GOAL}}
+    # Kit with data sources? A source-using step, uncommented and adapted, looks like:
+    #
+    #   Step N — Run named query `open_orders` on source `erp` (QuerySource) with
+    #   CustomerId from $ARGUMENTS and outputPath _report/data/open_orders.csv.
+    #
+    # with constraints such as:
+    #   - "Query source `erp` only through its named queries — no ad-hoc SQL"
+    #   - "Write every result a script reads to _report/data/ via outputPath"
+    #   - "Cite the queryId of every query a figure in the report comes from"
+    # and the output file added to `output:` below. A kit without sources deletes this.
     constraints:
       - "Record intermediate results in _report/ so the run is resumable"
       - "Update state.json when the phase completes"
