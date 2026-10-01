@@ -1,0 +1,4262 @@
+{
+  "version": 1,
+  "base": {
+    "manifest": {
+      "id": "sources-demo",
+      "name": "Sources Demo",
+      "description": "Demo kit exercising the sources contract",
+      "version": "1.0.0",
+      "tags": [
+        "test"
+      ],
+      "contract_version": "^1.1.0",
+      "requires": {
+        "tools": [],
+        "runtime": [],
+        "astro": ">=0.3.0"
+      },
+      "sources": [
+        {
+          "id": "erp",
+          "engine": "sqlserver",
+          "access": "read_only",
+          "required": true,
+          "description": "ERP"
+        }
+      ]
+    },
+    "files": {
+      "src/sources/erp/SOURCE.md": "# ERP\n\nThe ERP order database.\n",
+      "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n",
+      "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+    }
+  },
+  "cases": [
+    {
+      "name": "base",
+      "criteria": "base",
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "no-queries-dir",
+      "criteria": "C7",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": null
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "parameterless-query",
+      "criteria": "C7",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description All open orders\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "joins-undeclared-warn",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\",\n          \"joins\": \"dbo.Unknown.Id\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true,
+        "warn": [
+          {
+            "check": "SRC-07"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bracketed-table-key",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"[dbo].[v_Open Orders]\": {\n      \"purpose\": \"Bracketed schema-qualified key\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "unqualified-table-key",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"v_OpenOrders\": {\n      \"purpose\": \"Unqualified key\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "malformed-joins-ref",
+      "criteria": "C6",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\",\n          \"joins\": \"notaref\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "empty-sources-old-contract",
+      "criteria": "C2/C3",
+      "manifest": {
+        "contract_version": "^1.0.0",
+        "sources": []
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-defaults-accepted",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Status nvarchar(20) optional default=Open\n-- @param Limit int optional default=100\n-- @param Since date optional default=2026-01-01\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders\nWHERE CustomerId = @CustomerId AND Status = @Status AND Since <= @Since AND OrderId <= @Limit\nORDER BY OrderId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "max-rows-accepted",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 500\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "with-cte-accepted",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n-- a trailing comment inside the body is fine\nWITH cte AS (\n  SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n)\nSELECT OrderId, Total FROM cte; -- trailing semicolon\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "adhoc-default-true",
+      "criteria": "C15a",
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "adhoc-false-with-query",
+      "criteria": "C15b",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": false
+          }
+        ]
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "type-matrix-accepted",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Type matrix\n-- @param A int required\n-- @param B bigint required\n-- @param C bit required\n-- @param D decimal(18,2) required\n-- @param E nvarchar(50) required\n-- @param F nvarchar(max) required\n-- @param G varchar(max) required\n-- @param H date required\n-- @param I datetime2 required\n-- @param J uniqueidentifier required\n-- @param K NVARCHAR(MAX) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders\nWHERE OrderId = @A AND OrderId = @B AND OrderId = @C AND OrderId = @D\n  AND OrderId = @E AND OrderId = @F AND OrderId = @G AND OrderId = @H\n  AND OrderId = @I AND OrderId = @J AND OrderId = @K\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "id-uppercase",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "Erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "id-leading-digit",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "1erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "id-too-long",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "engine-not-sqlserver",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "postgres",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "access-not-read-only",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_write",
+            "required": true,
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "description-empty",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": ""
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "description-too-long",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "unknown-key",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "unknown": "nope"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "required-not-boolean",
+      "criteria": "C1a",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": "yes",
+            "description": "ERP"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "adhoc-string-no",
+      "criteria": "C15d",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": "no"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "adhoc-int-zero",
+      "criteria": "C15d",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": 0
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-01"
+      }
+    },
+    {
+      "name": "duplicate-source-id",
+      "criteria": "C1",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP"
+          },
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP again"
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-02"
+      }
+    },
+    {
+      "name": "contract-absent",
+      "criteria": "C1h",
+      "manifest": {
+        "contract_version": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-1.0.0",
+      "criteria": "C1h",
+      "manifest": {
+        "contract_version": "1.0.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-caret-1.0.0",
+      "criteria": "C1h",
+      "manifest": {
+        "contract_version": "^1.0.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "missing-source-md",
+      "criteria": "C1b",
+      "files": {
+        "src/sources/erp/SOURCE.md": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "empty-source-md",
+      "criteria": "SRC-04",
+      "files": {
+        "src/sources/erp/SOURCE.md": "   \n  "
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "missing-schema-json",
+      "criteria": "C1c",
+      "files": {
+        "src/sources/erp/schema.json": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-05"
+      }
+    },
+    {
+      "name": "schema-json-truncated",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"p"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-missing-version",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-table-no-purpose",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-column-no-meaning",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unknown-key",
+      "criteria": "C1d",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meanin\": \"Primary key\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "query-name-mismatch",
+      "criteria": "C1e",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name wrong_name\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-missing-description",
+      "criteria": "C1e",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-unknown-tag",
+      "criteria": "SRC-08",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @nmae bogus\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "name-invalid-pattern",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": null,
+        "src/sources/erp/queries/OpenOrders.sql": "-- @name OpenOrders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-undeclared-param",
+      "criteria": "C1f",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Region = @Other\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-09"
+      }
+    },
+    {
+      "name": "query-unused-param",
+      "criteria": "C1g",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Unused int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-09"
+      }
+    },
+    {
+      "name": "param-no-qualifier",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-unknown-type",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId integerx required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-on-required",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required default=5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-bad-int",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Limit int optional default=abc\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = 1 -- @Limit unused ok\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-bad-date",
+      "criteria": "C12",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Since date optional default=yesterday\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "returns-missing",
+      "criteria": "C11a",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-empty",
+      "criteria": "C11b",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns \nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-column-no-type",
+      "criteria": "C11c",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-unknown-type",
+      "criteria": "C11d",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total money2\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "returns-duplicate-column",
+      "criteria": "C11e",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, OrderId int\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "body-update",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nUPDATE dbo.Orders SET Total = 0 WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-delete",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nDELETE FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-insert",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nINSERT INTO dbo.Orders (CustomerId) VALUES (@CustomerId)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-exec",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nEXEC dbo.sp_x @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-stacked-drop",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId FROM dbo.Orders WHERE CustomerId = @CustomerId; DROP TABLE dbo.Orders\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-two-selects",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId FROM dbo.Orders WHERE CustomerId = @CustomerId; SELECT 1;\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-select-into",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId INTO #tmp FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-empty",
+      "criteria": "C13",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-hint-with-nolock",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WITH (NOLOCK) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-legacy-nolock",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders (NOLOCK) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-nolock-lowercase",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nselect OrderId, Total from dbo.Orders with (nolock) where CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-readuncommitted",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WITH (READUNCOMMITTED) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-readpast",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WITH (READPAST) WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-set-isolation-read-uncommitted",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-set-isolation-snapshot",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\nset transaction isolation level snapshot\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-15"
+      }
+    },
+    {
+      "name": "body-hint-in-comment-ok",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n-- never WITH (NOLOCK) here\nSELECT OrderId, Total FROM dbo.Orders /* READ UNCOMMITTED, SNAPSHOT */ WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "body-hint-in-string-ok",
+      "criteria": "C6 (phase 104 r2)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 'WITH (NOLOCK)' <> 'READ UNCOMMITTED'\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "max-rows-zero",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 0\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-negative",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows -5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-non-integer",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows abc\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-fraction",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 1.5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "max-rows-duplicate",
+      "criteria": "C14",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 500\n-- @max_rows 600\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-12"
+      }
+    },
+    {
+      "name": "adhoc-false-no-queries",
+      "criteria": "C15c",
+      "manifest": {
+        "sources": [
+          {
+            "id": "erp",
+            "engine": "sqlserver",
+            "access": "read_only",
+            "required": true,
+            "description": "ERP",
+            "adhoc": false
+          }
+        ]
+      },
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": null
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-14"
+      }
+    },
+    {
+      "name": "type-nvarchar-abc",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad nvarchar(abc) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "type-decimal-xy",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad decimal(x,y) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "type-varchar-negative",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad varchar(-1) required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "type-strng-unknown",
+      "criteria": "C16",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Bad strng required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND 1 = LEN(@Bad)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "query-bom",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "\ufeff-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-bom-only",
+      "criteria": "C5 r1",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\ufeff\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "param-default-bigint-max",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=9223372036854775807\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-bigint-min",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=-9223372036854775808\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-bigint-overflow",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=9223372036854775808\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-bigint-underflow",
+      "criteria": "C12 r1",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId bigint optional default=-9223372036854775809\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "schema-json-bom",
+      "criteria": "C1/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "\ufeff{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-compact",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\":1,\"tables\":{\"dbo.Orders\":{\"purpose\":\"Order header records\",\"kind\":\"table\",\"columns\":{\"OrderId\":{\"meaning\":\"Primary key\",\"type\":\"int\",\"key\":true},\"CustomerId\":{\"meaning\":\"Customer reference\",\"type\":\"int\"},\"Total\":{\"meaning\":\"Order total\",\"type\":\"decimal(18,2)\"}}}}}"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-empty-tables",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-values-map",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"Status\": {\n          \"meaning\": \"Order status\",\n          \"values\": {\n            \"O\": \"Open\",\n            \"C\": \"Closed, final\"\n          }\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-rules-list",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rules\": [\n        \"Totals include tax\",\n        \"Dates are UTC, always\"\n      ],\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-empty-rules",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rules\": [],\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-multiline-strings",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records.\\nOne row per order.\",\n      \"grain\": \"one row per order\\n\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-all-fields",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"view\",\n      \"grain\": \"one row per order\",\n      \"rows\": 2000000,\n      \"rules\": [\n        \"Totals include tax\"\n      ],\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"PlacedAt\": {\n          \"meaning\": \"Placement time\",\n          \"type\": \"datetime2\",\n          \"tz\": \"UTC\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\",\n          \"unit\": \"EUR\",\n          \"sensitive\": false\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-rows-string",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": \"~2M\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-integral-float",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1.0, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": 5.0}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-escaped-strings",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Caf\\u00e9 \\\"orders\\\" \\/ tab\\t\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-proto-column",
+      "criteria": "C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"__proto__\": {\"meaning\": \"Odd but legal\"}}}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "schema-json-duplicate-version-invalid-first",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 2, \"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"version\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-tables",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {}, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"tables\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-table-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}, \"dbo.Orders\": {\"purpose\": \"Again\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"dbo.Orders\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-purpose",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": 5, \"purpose\": \"Order header records\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"purpose\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-column-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}, \"OrderId\": {\"meaning\": \"Again\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"OrderId\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-meaning",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\", \"meaning\": \"Again\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"meaning\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-values-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"Status\": {\"meaning\": \"Order status\", \"values\": {\"O\": \"Open\", \"O\": \"Other\"}}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"O\""
+      }
+    },
+    {
+      "name": "schema-json-duplicate-after-escape",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\", \"mean\\u0069ng\": \"Again\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06",
+        "message": "duplicate key \"meaning\""
+      }
+    },
+    {
+      "name": "schema-json-purpose-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": 5\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": [\n        \"Order header records\"\n      ]\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-boolean",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": true\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-purpose-empty",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": [\n            \"x\"\n          ]\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-boolean",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": true\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": 1\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-meaning-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": null\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-version-true",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": true, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-version-string",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": \"1\", \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-version-2",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 2, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-missing-tables",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-tables-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": null}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unknown-top-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {}, \"extra\": true}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unknown-table-key",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"purpse\": \"x\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-kind-invalid",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"procedure\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-kind-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-grain-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"grain\": 1\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rows-fractional",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": 1.5\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rows-boolean",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": true\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rows-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rows\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-columns-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": null\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-columns-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": []\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-rules-not-strings",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"rules\": [\n        1\n      ]\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-column-not-object",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": \"Primary key\"\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-type-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": 5\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-key-string",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"key\": \"yes\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-sensitive-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"sensitive\": 1\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-values-not-strings",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"Status\": {\n          \"meaning\": \"Order status\",\n          \"values\": {\n            \"O\": 1\n          }\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-joins-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"joins\": null\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-table-key-trailing-newline",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\\n\": {\n      \"purpose\": \"Order header records\"\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-joins-trailing-newline",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"joins\": \"dbo.Orders.OrderId\\n\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unbalanced-braces",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\"}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-trailing-comma-object",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\",}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-trailing-comma-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rules\": [\"a\",]}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-line-comment",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\n  // tables Astro can query\n  \"version\": 1,\n  \"tables\": {}\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-block-comment",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{ /* v1 */ \"version\": 1, \"tables\": {} }\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-single-quotes",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{'version': 1, 'tables': {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-unquoted-keys",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{version: 1, tables: {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-nan",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": NaN}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-infinity",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": Infinity}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-negative-infinity",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": -Infinity}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-number-overflow",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": 1e400}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-hex-number",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"rows\": 0x10}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-leading-zero",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 01, \"tables\": {}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-raw-control-char",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order\theader\"}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-yaml-content",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-yaml-flow-content",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "version: 1\ntables: {}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-empty-file",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": ""
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-whitespace-only",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": " \n\t\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-top-level-array",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "[{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}]\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-top-level-string",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "\"version\"\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-top-level-null",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "null\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-trailing-content",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}} {}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-two-documents",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}\n{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \"Order header records\", \"columns\": {\"OrderId\": {\"meaning\": \"Primary key\"}}}}}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-json-double-bom",
+      "criteria": "C1d/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": "\ufeff\ufeff{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-06"
+      }
+    },
+    {
+      "name": "schema-yaml-instead-of-schema-json",
+      "criteria": "C1c/C4 r2",
+      "files": {
+        "src/sources/erp/schema.json": null,
+        "src/sources/erp/schema.yaml": "version: 1\ntables:\n  dbo.Orders:\n    purpose: Order header records\n    kind: table\n    columns:\n      OrderId:\n        meaning: Primary key\n        type: int\n        key: true\n      CustomerId:\n        meaning: Customer reference\n        type: int\n      Total:\n        meaning: Order total\n        type: decimal(18,2)\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-05"
+      }
+    },
+    {
+      "name": "schema-json-wrong-case-name",
+      "criteria": "C1c r2",
+      "files": {
+        "src/sources/erp/schema.json": null,
+        "src/sources/erp/Schema.json": "{\n  \"version\": 1,\n  \"tables\": {\n    \"dbo.Orders\": {\n      \"purpose\": \"Order header records\",\n      \"kind\": \"table\",\n      \"columns\": {\n        \"OrderId\": {\n          \"meaning\": \"Primary key\",\n          \"type\": \"int\",\n          \"key\": true\n        },\n        \"CustomerId\": {\n          \"meaning\": \"Customer reference\",\n          \"type\": \"int\"\n        },\n        \"Total\": {\n          \"meaning\": \"Order total\",\n          \"type\": \"decimal(18,2)\"\n        }\n      }\n    }\n  }\n}\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-05"
+      }
+    },
+    {
+      "name": "source-md-two-boms",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\ufeff\ufeff"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-two-boms-whitespace",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\ufeff \ufeff\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-space-bom-space",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": " \ufeff "
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-tab-bom-newline",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\t\ufeff\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-vt-ff-crlf",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u000b\f\r\n "
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-04"
+      }
+    },
+    {
+      "name": "source-md-nel-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u0085"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-info-separators",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u001c\u001d\u001e\u001f"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-nbsp-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u00a0"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-line-paragraph-separators",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u2028\u2029"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "source-md-ideographic-space",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/SOURCE.md": "\u3000"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-line-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open\u2028orders\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-paragraph-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders\u2029for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-only-line-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description \u2028\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-nbsp-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description \u00a0\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-lone-cr",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open\rorders\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-description-bom-tab-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description \ufeff\t\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "query-crlf-headers",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\r\n-- @description Open orders for a customer\r\n-- @param CustomerId int required\r\n-- @returns OrderId int, Total decimal(18,2)\r\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\r\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-param-name-nel",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param Cust\u0085omerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "query-param-nbsp-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId\u00a0int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "query-returns-nbsp-separator",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId\u00a0int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-11"
+      }
+    },
+    {
+      "name": "query-body-leading-nel",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\n\u0085SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "query-body-accented-prefix-drop",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId AS \u00e9DROP, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "query-body-kelvin-sign-not-kill",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId AS \u212aILL, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "query-file-named-dot-sql",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-08"
+      }
+    },
+    {
+      "name": "param-default-date-arabic-indic-digits",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Since date optional default=\u0662\u0660\u0662\u0666-\u0660\u0661-\u0660\u0661\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND OrderDate >= @Since\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-nvarchar-astral-too-long",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Tag nvarchar(3) optional default=\ud83d\ude00\ud83d\ude00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Tag = @Tag\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-nvarchar-astral-fits",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Tag nvarchar(4) optional default=\ud83d\ude00\ud83d\ude00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Tag = @Tag\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-decimal-zero-integer-part",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Rate decimal(2,2) optional default=0.5\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Rate = @Rate\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "contract-arabic-indic-digits",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "^\u0661.\u0661.\u0660"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-nel-padded",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "\u0085^1.1.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-nbsp-padded",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "\u00a0^1.1.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "contract-newline-padded",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "^1.1.0\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "contract-leading-zero",
+      "criteria": "C5 r4",
+      "manifest": {
+        "contract_version": "^01.1.0"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-03"
+      }
+    },
+    {
+      "name": "schema-json-purpose-whitespace-only",
+      "criteria": "C5 r4",
+      "files": {
+        "src/sources/erp/schema.json": "{\"version\": 1, \"tables\": {\"dbo.Orders\": {\"purpose\": \" \", \"columns\": {\"OrderId\": {\"meaning\": \"\\t\"}}}}}\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "max-rows-5000-digits",
+      "criteria": "C4/C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @max_rows 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-bigint-5000-digits",
+      "criteria": "C4/C5 r4",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Big bigint optional default=100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Big = @Big\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-smallmoney-default-overflow",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap smallmoney optional default=999999\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-smallmoney-default-max",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap smallmoney optional default=214748.3647\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-money-default-too-many-decimals",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap money optional default=1.23456\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetimeoffset-default-offset-15",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetimeoffset optional default=2026-01-01T00:00:00+15:00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetimeoffset-default-offset-14",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetimeoffset optional default=2026-01-01T00:00:00+14:00\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-float-default-1e309",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1e309\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-float-default-400-digits",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-float-default-max",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1.79E+308\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-float-default-underflow",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap float optional default=1e-400\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-real-default-1e39",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap real optional default=1e39\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-real-default-max",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap real optional default=3.40E+38\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "param-default-date-default-non-leap-feb29",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap date optional default=2023-02-29\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetime-default-before-1753",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetime optional default=1752-12-31\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "param-default-datetime2-default-fraction-over-scale",
+      "criteria": "C12 r5",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @param Cap datetime2(3) optional default=2026-01-01T10:00:00.1234\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId AND Total <= @Cap\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-10"
+      }
+    },
+    {
+      "name": "body-chain-commit-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId COMMIT\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-chain-set-lock-timeout-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId SET LOCK_TIMEOUT -1 SELECT OrderId, Total FROM dbo.Orders\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-chain-second-select-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId SELECT 2 AS OrderId, 3 AS Total\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-chain-begin-tran-no-semicolon",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nSELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId BEGIN TRAN\n"
+      },
+      "expect": {
+        "ok": false,
+        "check": "SRC-13"
+      }
+    },
+    {
+      "name": "body-cte-union-offset-fetch-ok",
+      "criteria": "C4/C6 (phase 104 r3)",
+      "files": {
+        "src/sources/erp/queries/open_orders.sql": "-- @name open_orders\n-- @description Open orders for a customer\n-- @param CustomerId int required\n-- @returns OrderId int, Total decimal(18,2)\nWITH o AS (SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId UNION ALL SELECT OrderId, Total FROM dbo.Archive WHERE CustomerId = @CustomerId)\nSELECT OrderId, Total FROM o -- COMMIT in a comment\nORDER BY OrderId OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;\n"
+      },
+      "expect": {
+        "ok": true
+      }
+    }
+  ],
+  "default_literals": [
+    {
+      "type": "tinyint",
+      "literal": "255",
+      "ok": true
+    },
+    {
+      "type": "tinyint",
+      "literal": "256",
+      "ok": false,
+      "note": "max+1"
+    },
+    {
+      "type": "tinyint",
+      "literal": "-1",
+      "ok": false,
+      "note": "min-1"
+    },
+    {
+      "type": "smallint",
+      "literal": "-32768",
+      "ok": true
+    },
+    {
+      "type": "smallint",
+      "literal": "-32769",
+      "ok": false,
+      "note": "min-1"
+    },
+    {
+      "type": "int",
+      "literal": "2147483647",
+      "ok": true
+    },
+    {
+      "type": "int",
+      "literal": "2147483648",
+      "ok": false,
+      "note": "max+1"
+    },
+    {
+      "type": "bigint",
+      "literal": "9223372036854775807",
+      "ok": true
+    },
+    {
+      "type": "bigint",
+      "literal": "9223372036854775808",
+      "ok": false,
+      "note": "max+1"
+    },
+    {
+      "type": "bigint",
+      "literal": "-9223372036854775808",
+      "ok": true
+    },
+    {
+      "type": "bigint",
+      "literal": "-9223372036854775809",
+      "ok": false,
+      "note": "min-1"
+    },
+    {
+      "type": "bit",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "1",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "true",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "false",
+      "ok": true
+    },
+    {
+      "type": "bit",
+      "literal": "2",
+      "ok": false
+    },
+    {
+      "type": "bit",
+      "literal": "yes",
+      "ok": false
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "999.99",
+      "ok": true,
+      "note": "exact max"
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "1000.00",
+      "ok": false,
+      "note": "max+1 ulp at scale"
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "-999.99",
+      "ok": true
+    },
+    {
+      "type": "decimal(5,2)",
+      "literal": "999.999",
+      "ok": false,
+      "note": "more decimals than scale"
+    },
+    {
+      "type": "decimal(2,2)",
+      "literal": "0.5",
+      "ok": true,
+      "note": "leading zero is not a significant digit"
+    },
+    {
+      "type": "decimal(38,0)",
+      "literal": "99999999999999999999999999999999999999",
+      "ok": true,
+      "note": "38 nines"
+    },
+    {
+      "type": "decimal(38,0)",
+      "literal": "999999999999999999999999999999999999999",
+      "ok": false,
+      "note": "39 nines"
+    },
+    {
+      "type": "decimal",
+      "literal": "1.5",
+      "ok": false,
+      "note": "bare decimal is decimal(18,0)"
+    },
+    {
+      "type": "numeric(3,1)",
+      "literal": "12.3",
+      "ok": true
+    },
+    {
+      "type": "money",
+      "literal": "922337203685477.5807",
+      "ok": true,
+      "note": "exact max"
+    },
+    {
+      "type": "money",
+      "literal": "922337203685477.5808",
+      "ok": false,
+      "note": "max+1 ulp"
+    },
+    {
+      "type": "money",
+      "literal": "-922337203685477.5808",
+      "ok": true,
+      "note": "exact min"
+    },
+    {
+      "type": "money",
+      "literal": "-922337203685477.5809",
+      "ok": false,
+      "note": "min-1 ulp"
+    },
+    {
+      "type": "money",
+      "literal": "1.2340",
+      "ok": true
+    },
+    {
+      "type": "money",
+      "literal": "1.23456",
+      "ok": false,
+      "note": "5 decimal places"
+    },
+    {
+      "type": "money",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "money",
+      "literal": "99999999999999999999",
+      "ok": false,
+      "note": "20-digit integer"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "214748.3647",
+      "ok": true,
+      "note": "exact max"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "214748.3648",
+      "ok": false,
+      "note": "max+1 ulp"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "-214748.3648",
+      "ok": true,
+      "note": "exact min"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "-214748.3649",
+      "ok": false,
+      "note": "min-1 ulp"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "999999",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "smallmoney",
+      "literal": "0.0001",
+      "ok": true
+    },
+    {
+      "type": "smallmoney",
+      "literal": "0.00001",
+      "ok": false,
+      "note": "5 decimal places"
+    },
+    {
+      "type": "float",
+      "literal": "1.79E+308",
+      "ok": true,
+      "note": "documented max"
+    },
+    {
+      "type": "float",
+      "literal": "1.7900000000000001E+308",
+      "ok": false,
+      "note": "max + 1 decimal ulp"
+    },
+    {
+      "type": "float",
+      "literal": "-1.79E+308",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "179e306",
+      "ok": true,
+      "note": "same value as the max"
+    },
+    {
+      "type": "float",
+      "literal": "179000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "ok": true,
+      "note": "the max written as a 309-digit integer"
+    },
+    {
+      "type": "float",
+      "literal": "179000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+      "ok": false,
+      "note": "the max + 1 as a 309-digit integer"
+    },
+    {
+      "type": "float",
+      "literal": "1e309",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "float",
+      "literal": "1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "ok": false,
+      "note": "verifier r5: 400-digit integer"
+    },
+    {
+      "type": "float",
+      "literal": "1e99999999999999999999999",
+      "ok": false,
+      "note": "huge exponent"
+    },
+    {
+      "type": "float",
+      "literal": "2.23E-308",
+      "ok": true,
+      "note": "documented min positive"
+    },
+    {
+      "type": "float",
+      "literal": "2.2299999E-308",
+      "ok": false,
+      "note": "below min positive (underflow)"
+    },
+    {
+      "type": "float",
+      "literal": "-2.23E-308",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "1e-400",
+      "ok": false,
+      "note": "underflow"
+    },
+    {
+      "type": "float",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "0.0e99999",
+      "ok": true,
+      "note": "zero with any exponent is zero"
+    },
+    {
+      "type": "float",
+      "literal": "-0e-999",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "1.5",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "-2.5e10",
+      "ok": true
+    },
+    {
+      "type": "float",
+      "literal": "1.5e+",
+      "ok": false,
+      "note": "malformed exponent"
+    },
+    {
+      "type": "float(53)",
+      "literal": "1e308",
+      "ok": true
+    },
+    {
+      "type": "float(25)",
+      "literal": "1e39",
+      "ok": true,
+      "note": "float(25..53) is 8-byte"
+    },
+    {
+      "type": "float(24)",
+      "literal": "3.40E+38",
+      "ok": true,
+      "note": "float(1..24) is real"
+    },
+    {
+      "type": "float(24)",
+      "literal": "1e39",
+      "ok": false,
+      "note": "float(1..24) is real"
+    },
+    {
+      "type": "float(1)",
+      "literal": "1.18E-38",
+      "ok": true
+    },
+    {
+      "type": "float(1)",
+      "literal": "1.17E-38",
+      "ok": false,
+      "note": "real underflow"
+    },
+    {
+      "type": "float(54)",
+      "literal": "1",
+      "ok": false,
+      "note": "mantissa must be 1..53"
+    },
+    {
+      "type": "float(0)",
+      "literal": "1",
+      "ok": false,
+      "note": "mantissa must be 1..53"
+    },
+    {
+      "type": "real",
+      "literal": "3.40E+38",
+      "ok": true,
+      "note": "documented max"
+    },
+    {
+      "type": "real",
+      "literal": "3.4000000001E+38",
+      "ok": false,
+      "note": "max + decimal ulp"
+    },
+    {
+      "type": "real",
+      "literal": "-3.40E+38",
+      "ok": true
+    },
+    {
+      "type": "real",
+      "literal": "1e39",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "real",
+      "literal": "1.18E-38",
+      "ok": true,
+      "note": "documented min positive"
+    },
+    {
+      "type": "real",
+      "literal": "1.17E-38",
+      "ok": false,
+      "note": "underflow"
+    },
+    {
+      "type": "real",
+      "literal": "0",
+      "ok": true
+    },
+    {
+      "type": "date",
+      "literal": "0001-01-01",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "date",
+      "literal": "9999-12-31",
+      "ok": true,
+      "note": "max"
+    },
+    {
+      "type": "date",
+      "literal": "0000-12-31",
+      "ok": false,
+      "note": "year 0"
+    },
+    {
+      "type": "date",
+      "literal": "0050-06-15",
+      "ok": true,
+      "note": "two-digit-era year (JS Date maps 0..99 to 19xx)"
+    },
+    {
+      "type": "date",
+      "literal": "2024-02-29",
+      "ok": true,
+      "note": "leap day"
+    },
+    {
+      "type": "date",
+      "literal": "2023-02-29",
+      "ok": false,
+      "note": "not a leap year"
+    },
+    {
+      "type": "date",
+      "literal": "1900-02-29",
+      "ok": false,
+      "note": "century, not a leap year"
+    },
+    {
+      "type": "date",
+      "literal": "2000-02-29",
+      "ok": true,
+      "note": "400-year leap day"
+    },
+    {
+      "type": "date",
+      "literal": "2026-13-01",
+      "ok": false
+    },
+    {
+      "type": "date",
+      "literal": "2026-04-31",
+      "ok": false
+    },
+    {
+      "type": "date",
+      "literal": "2026-01-01T00:00:00",
+      "ok": false,
+      "note": "date takes no time"
+    },
+    {
+      "type": "datetime",
+      "literal": "1753-01-01",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "datetime",
+      "literal": "1752-12-31",
+      "ok": false,
+      "note": "min-1 day"
+    },
+    {
+      "type": "datetime",
+      "literal": "1753-01-01T00:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime",
+      "literal": "9999-12-31T23:59:59.997",
+      "ok": true,
+      "note": "max"
+    },
+    {
+      "type": "datetime",
+      "literal": "9999-12-31T23:59:59.999",
+      "ok": false,
+      "note": "rounds past the max"
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T12:00:00.123",
+      "ok": true
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T12:00:00.1234",
+      "ok": false,
+      "note": "datetime takes 3 fractional digits"
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T24:00:00",
+      "ok": false
+    },
+    {
+      "type": "datetime",
+      "literal": "2026-01-01T23:60",
+      "ok": false
+    },
+    {
+      "type": "datetime",
+      "literal": "2024-02-29T10:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime",
+      "literal": "2023-02-29T10:00:00",
+      "ok": false
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "1900-01-01",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "1899-12-31",
+      "ok": false,
+      "note": "min-1 day"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06",
+      "ok": true,
+      "note": "max day"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-07",
+      "ok": false,
+      "note": "max+1 day"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06T23:59:29.998",
+      "ok": true,
+      "note": "rounds down to the max minute"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06T23:59:29.999",
+      "ok": false,
+      "note": "rounds up past the max"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2079-06-06T23:59:30",
+      "ok": false,
+      "note": "rounds up past the max"
+    },
+    {
+      "type": "smalldatetime",
+      "literal": "2026-01-01T10:00:00.1234",
+      "ok": false,
+      "note": "3 fractional digits at most"
+    },
+    {
+      "type": "datetime2",
+      "literal": "0001-01-01T00:00:00",
+      "ok": true,
+      "note": "min"
+    },
+    {
+      "type": "datetime2",
+      "literal": "9999-12-31T23:59:59.9999999",
+      "ok": true,
+      "note": "max, scale 7"
+    },
+    {
+      "type": "datetime2",
+      "literal": "0000-12-31T23:59:59",
+      "ok": false,
+      "note": "year 0"
+    },
+    {
+      "type": "datetime2(3)",
+      "literal": "2026-01-01T10:00:00.123",
+      "ok": true,
+      "note": "fraction = scale"
+    },
+    {
+      "type": "datetime2(3)",
+      "literal": "2026-01-01T10:00:00.1234",
+      "ok": false,
+      "note": "fraction > scale"
+    },
+    {
+      "type": "datetime2(0)",
+      "literal": "2026-01-01T10:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime2(0)",
+      "literal": "2026-01-01T10:00:00.5",
+      "ok": false,
+      "note": "scale 0 takes no fraction"
+    },
+    {
+      "type": "datetime2",
+      "literal": "2024-02-29T00:00:00",
+      "ok": true
+    },
+    {
+      "type": "datetime2",
+      "literal": "2023-02-29T00:00:00",
+      "ok": false
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+14:00",
+      "ok": true,
+      "note": "max offset"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+14:01",
+      "ok": false,
+      "note": "max offset + 1 minute"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00-14:00",
+      "ok": true,
+      "note": "min offset"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00-14:01",
+      "ok": false,
+      "note": "min offset - 1 minute"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+15:00",
+      "ok": false,
+      "note": "verifier r5"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+13:59",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00+05:60",
+      "ok": false,
+      "note": "offset minutes 00..59"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2026-01-01T00:00:00Z",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset(2)",
+      "literal": "2026-01-01T00:00:00.12+01:00",
+      "ok": true,
+      "note": "fraction = scale"
+    },
+    {
+      "type": "datetimeoffset(2)",
+      "literal": "2026-01-01T00:00:00.123+01:00",
+      "ok": false,
+      "note": "fraction > scale"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "0001-01-01T00:00:00+01:00",
+      "ok": false,
+      "note": "UTC instant before 0001-01-01"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "0001-01-01T00:00:00-01:00",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "9999-12-31T23:59:59-01:00",
+      "ok": false,
+      "note": "UTC instant after 9999-12-31"
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "9999-12-31T23:59:59+01:00",
+      "ok": true
+    },
+    {
+      "type": "datetimeoffset",
+      "literal": "2023-02-29T00:00:00Z",
+      "ok": false
+    },
+    {
+      "type": "time",
+      "literal": "23:59:59.9999999",
+      "ok": true,
+      "note": "max"
+    },
+    {
+      "type": "time",
+      "literal": "24:00:00",
+      "ok": false
+    },
+    {
+      "type": "time",
+      "literal": "00:00",
+      "ok": true
+    },
+    {
+      "type": "time(3)",
+      "literal": "10:00:00.123",
+      "ok": true,
+      "note": "fraction = scale"
+    },
+    {
+      "type": "time(3)",
+      "literal": "10:00:00.1234",
+      "ok": false,
+      "note": "fraction > scale"
+    },
+    {
+      "type": "time(0)",
+      "literal": "10:00:00",
+      "ok": true
+    },
+    {
+      "type": "time(0)",
+      "literal": "10:00:00.1",
+      "ok": false,
+      "note": "scale 0 takes no fraction"
+    },
+    {
+      "type": "nvarchar(3)",
+      "literal": "abc",
+      "ok": true
+    },
+    {
+      "type": "nvarchar(3)",
+      "literal": "abcd",
+      "ok": false
+    },
+    {
+      "type": "nvarchar(2)",
+      "literal": "\ud83d\ude00",
+      "ok": true,
+      "note": "one emoji = 2 UTF-16 units"
+    },
+    {
+      "type": "nvarchar(1)",
+      "literal": "\ud83d\ude00",
+      "ok": false
+    },
+    {
+      "type": "nchar(3)",
+      "literal": "abc",
+      "ok": true
+    },
+    {
+      "type": "char(2)",
+      "literal": "abc",
+      "ok": false
+    },
+    {
+      "type": "varchar(max)",
+      "literal": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ok": true
+    },
+    {
+      "type": "uniqueidentifier",
+      "literal": "6F9619FF-8B86-D011-B42D-00C04FC964FF",
+      "ok": true
+    },
+    {
+      "type": "uniqueidentifier",
+      "literal": "{6F9619FF-8B86-D011-B42D-00C04FC964FF}",
+      "ok": false,
+      "note": "braces not accepted"
+    },
+    {
+      "type": "uniqueidentifier",
+      "literal": "6F9619FF-8B86-D011-B42D-00C04FC964FG",
+      "ok": false
+    }
+  ],
+  "single_select": [
+    {
+      "sql": "SELECT 1 AS Value",
+      "ok": true
+    },
+    {
+      "sql": "SELECT OrderId FROM dbo.Orders WHERE CustomerId = @CustomerId;",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t -- trailing comment",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t; -- a comment after the one trailing ';'",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t;  /* c */  \n",
+      "ok": true
+    },
+    {
+      "sql": "WITH cte AS (SELECT a FROM t) SELECT a FROM cte",
+      "ok": true
+    },
+    {
+      "sql": "WITH c1 (x, y) AS (SELECT 1, 2), c2 AS (SELECT x FROM c1) SELECT * FROM c2",
+      "ok": true
+    },
+    {
+      "sql": "WITH r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 10) SELECT n FROM r OPTION (MAXRECURSION 100)",
+      "ok": true
+    },
+    {
+      "sql": "WITH XMLNAMESPACES ('urn:x' AS ns) SELECT 1 AS a FOR XML PATH('r')",
+      "ok": true
+    },
+    {
+      "sql": "WITH [my cte] AS (SELECT 1 AS a) SELECT a FROM [my cte]",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION SELECT b FROM u",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION ALL SELECT b FROM u EXCEPT SELECT c FROM v INTERSECT SELECT d FROM w",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION (SELECT b FROM u)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t UNION ALL (SELECT b FROM u) ORDER BY a",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a OFFSET @skip ROWS FETCH FIRST 1 ROW ONLY",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, b FROM t FOR JSON PATH, INCLUDE_NULL_VALUES",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t FOR XML RAW, ROOT('rows'), TYPE",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t FOR BROWSE",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t FOR SYSTEM_TIME AS OF '2026-01-01'",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (SELECT b FROM u WHERE u.c = t.c)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.id = t.id)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE NOT EXISTS (SELECT 1 FROM u) AND b = ANY (SELECT b FROM v)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT (SELECT MAX(b) FROM u) AS m, ISNULL((SELECT TOP 1 c FROM v), 0) AS n FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT x.a FROM (SELECT a FROM t) AS x JOIN (SELECT a FROM u) y ON y.a = x.a",
+      "ok": true
+    },
+    {
+      "sql": "SELECT t.a, o.b FROM t CROSS APPLY (SELECT TOP 1 b FROM o WHERE o.a = t.a ORDER BY b DESC) o",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY c DESC) AS rn, SUM(d) OVER (ORDER BY c ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT CASE WHEN a > 0 THEN 'pos' WHEN a < 0 THEN 'neg' ELSE 'zero' END AS sign FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT CASE a WHEN 1 THEN CASE WHEN b = 1 THEN 'x' ELSE 'y' END ELSE 'z' END AS c FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT CAST((SELECT 1) AS int) AS v",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a = (SELECT 1) + (SELECT 2) FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT v.x FROM (VALUES (1), (2)) AS v(x)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t PIVOT (SUM(b) FOR c IN ([x], [y])) AS p",
+      "ok": true
+    },
+    {
+      "sql": "SELECT STRING_AGG(a, ',') WITHIN GROUP (ORDER BY a) AS s FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT TOP (10) WITH TIES a FROM t ORDER BY a",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, COUNT(*) FROM t GROUP BY a WITH ROLLUP",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a, COUNT(*) FROM t GROUP BY a WITH CUBE",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WITH (INDEX(ix_a))",
+      "ok": true
+    },
+    {
+      "sql": "SELECT j.a FROM OPENJSON(@json) WITH (a int '$.a') AS j",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a LIKE '%x%' AND b BETWEEN 1 AND 10 OR c IS NOT NULL",
+      "ok": true
+    },
+    {
+      "sql": "SELECT IIF(a > 1, 'y', 'n') AS f, DATEADD(day, 1, GETDATE()) AS d, $5 + 1 AS m FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 0x1F AS b, 1.5e3 AS f, .5 AS h, 1e AS e",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = @p OPTION (RECOMPILE, MAXDOP 1)",
+      "ok": true
+    },
+    {
+      "sql": "select a from t union all select b from u order by 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT @@ROWCOUNT AS rc, @p AS p FROM #t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 'COMMIT; DELETE FROM t; BEGIN TRAN' AS note FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT N'it''s a ROLLBACK' AS note, 'SET LOCK_TIMEOUT -1' AS n2",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t /* COMMIT /* nested SELECT 2 */ still a comment BEGIN TRAN */ WHERE 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value /* /* */ COMMIT */",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t -- COMMIT\nWHERE a > 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t -- SELECT 2\r\nWHERE a > 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a\rFROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT [Select], [Commit], [Begin Tran], [a]]b] FROM [dbo].[Delete]",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS [a]]COMMIT]",
+      "ok": true
+    },
+    {
+      "sql": "SELECT \"Update\" AS \"Set\", \"a\"\"COMMIT\" FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a AS Gr\u00f6\u00dfe FROM t",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = N'x' COLLATE Latin1_General_CI_AS",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value -- a comment at the very end without a newline",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value \u212aILL",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SET LOCK_TIMEOUT -1 SELECT a AS Value FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SELECT 2 AS Value",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value BEGIN TRAN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ROLLBACK",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SAVE TRAN x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value DECLARE @x int",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value EXEC sp_who",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value EXECUTE ('SELECT 1')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value IF 1 = 1 SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WHILE 1 = 1 BREAK",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WAITFOR DELAY '00:01'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value PRINT 'x'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RAISERROR('x', 16, 1)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value THROW 50000, 'x', 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value USE master",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value GO",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RETURN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value OPEN c",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value FETCH NEXT FROM c",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value CLOSE c DEALLOCATE c",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value DBCC FREEPROCCACHE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value KILL 52",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value CHECKPOINT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SETUSER",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value REVERT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ENABLE TRIGGER tr ON t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value DISABLE TRIGGER tr ON t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value GOTO l",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RECEIVE TOP (1) * FROM q",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SEND ON CONVERSATION 'x'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value MERGE t USING u ON 1 = 1 WHEN MATCHED THEN DELETE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value TRUNCATE TABLE t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value BACKUP DATABASE x TO DISK = 'y'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value SHUTDOWN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value RECONFIGURE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value READTEXT t.c @p 0 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value BULK INSERT t FROM 'f'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WITH x AS (SELECT 1 AS a) SELECT a FROM x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value WITH",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WITH NOLOCK",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (SELECT 1 AS a) SELECT a FROM x SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (SELECT 1 AS a) COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (DELETE FROM t) SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": "WITH SELECT AS (SELECT 1 AS a) SELECT a FROM x",
+      "ok": false
+    },
+    {
+      "sql": "WITH x AS (SELECT 1 AS a)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value (SELECT 2 AS Value)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ((SELECT 2 AS Value))",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (1) (SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1(SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value ELSE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value END",
+      "ok": false
+    },
+    {
+      "sql": "SELECT CASE WHEN 1 = 1 THEN 1 END END",
+      "ok": false
+    },
+    {
+      "sql": "SELECT CASE WHEN 1 = 1 THEN 1 AS x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1ELSE 2",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a FETCH NEXT 5 ROWS ONLY",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t ORDER BY a OFFSET 1 ROWS FETCH 5",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a INTO #t FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t UNION DELETE FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t UNION",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t UNION ALL COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (1 UNION 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM (SELECT a FROM t COMMIT) x",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE b = (SELECT 1 UPDATE t SET a = 1)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = 1 OR (a = 2 COMMIT)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a = (1 SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM OPENROWSET('SQLNCLI', 'x', 'SELECT 1')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (USE HINT('DISABLE_OPTIMIZER_ROWGOAL'))",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1 AS Value FOR UPDATE",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1; SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1;;",
+      "ok": false
+    },
+    {
+      "sql": ";SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": ";",
+      "ok": false
+    },
+    {
+      "sql": "",
+      "ok": false
+    },
+    {
+      "sql": "   \n-- only a comment\n",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1)",
+      "ok": true
+    },
+    {
+      "sql": "UPDATE t SET a = 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT (a FROM t",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\rCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\r' \nCOMMIT --'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\u2028COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\u0085COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value --x\u000bCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 'unterminated",
+      "ok": false
+    },
+    {
+      "sql": "SELECT N'unterminated''",
+      "ok": false
+    },
+    {
+      "sql": "SELECT [unterminated",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS [a]] COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \"unterminated",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 /* unterminated /* nested */ ",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value /* /* */ */ COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value $COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value\u00a0COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS \u00e9COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "\u0085SELECT 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECTX 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1e AS Value",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1e + 1 AS v, 1E-5 AS w, 1.e5 AS x, .5E+2 AS y, 1. AS z",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 0x AS b, 0xABCDEF AS c",
+      "ok": true
+    },
+    {
+      "sql": "SELECT $1.50 AS m, $.5 AS n, \u00a5100 AS y, \u20ac5 AS e, $ AS z",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (RECOMPILE, USE HINT('A', 'B'))",
+      "ok": true
+    },
+    {
+      "sql": "SELECT o.Open, o.Close, m.Move, m.Send, m.Get, t.Commit, x.[Set] FROM o JOIN m ON m.id = o.id JOIN t ON t.id = o.id JOIN x ON x.id = o.id",
+      "ok": true
+    },
+    {
+      "sql": "SELECT dbo.Orders.Close, [o].Open, \"o\".Begin, o . Save FROM dbo.Orders JOIN o ON 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM db..Open",
+      "ok": true
+    },
+    {
+      "sql": "SELECT t.Select, t.End, t.Else, t.Fetch FROM t",
+      "ok": true
+    },
+    {
+      "sql": "(SELECT a FROM t) UNION ALL (SELECT b FROM u)",
+      "ok": true
+    },
+    {
+      "sql": "((SELECT 1 AS a))",
+      "ok": true
+    },
+    {
+      "sql": "(SELECT a FROM t) ORDER BY a",
+      "ok": true
+    },
+    {
+      "sql": "(SELECT a FROM t) UNION SELECT b FROM u;",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t LEFT MERGE JOIN u ON u.id = t.id",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t LEFT OUTER MERGE JOIN u ON u.id = t.id RIGHT MERGE JOIN v ON 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t INNER MERGE JOIN u ON u.id = t.id FULL OUTER MERGE JOIN v ON 1 = 1 RIGHT OUTER MERGE JOIN w ON 1 = 1",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t JOIN u ON u.id = t.id OPTION (MERGE JOIN)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT a FROM t JOIN u ON 1 = 1 OPTION (HASH JOIN, MERGE JOIN, MAXDOP 1)",
+      "ok": true
+    },
+    {
+      "sql": "SELECT 1eCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1eROLLBACK",
+      "ok": false
+    },
+    {
+      "sql": "SELECT .5eBEGIN TRAN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value, 2eSELECT 2 AS Value",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1eCOMMIT;",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1E+COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1e-COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1.eCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1.5EEXEC sp_who",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1EXEC sp_who",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1EXECUTE ('SELECT 1')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1_COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1@COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1$COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1N'x' COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1e--'\nCOMMIT --'",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0xCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0xBEGIN TRAN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0x COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 0x1gCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT $1COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT $.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT $1.5eCOMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \u00a5COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \u20ac1COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT \u20ac.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT (SELECT 1).COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value FROM t WHERE a = 1.COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE x = t.a COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t MERGE JOIN u ON 1 = 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t LEFT MERGE u USING v ON 1 = 1",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value MERGE JOIN",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (MERGE t USING u ON 1 = 1)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT 1 AS Value USE HINT('x')",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (USE master)",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (RECOMPILE USE HINT('x'))",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t WHERE a IN (USE HINT('x'))",
+      "ok": false
+    },
+    {
+      "sql": "SELECT a FROM t OPTION (MAXDOP (USE HINT('x')))",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) COMMIT",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) (SELECT 2)",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) SELECT 2",
+      "ok": false
+    },
+    {
+      "sql": "((SELECT 1) COMMIT)",
+      "ok": false
+    },
+    {
+      "sql": "(1)",
+      "ok": false
+    },
+    {
+      "sql": "(COMMIT)",
+      "ok": false
+    },
+    {
+      "sql": "()",
+      "ok": false
+    },
+    {
+      "sql": "(SELECT 1) UNION COMMIT",
+      "ok": false
+    }
+  ]
+}

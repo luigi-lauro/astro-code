@@ -937,6 +937,48 @@ test('width sweep: the window nearest its limit survives; detail only ever decre
   sweep({ five_hour: { used_percentage: 95 }, seven_day: { used_percentage: 10 } }, 10, 95);
 });
 
+test('outside a project the single line keeps its bars whenever it fits them, branch untruncated', () => {
+  // A fixed 150-column floor hid the bars from a 147-column terminal whose line was 80 columns
+  // wide with them, while the row layout of the same terminal drew them from 130 columns.
+  // The decision is now measured: bars when the whole line (full branch) fits, numbers when not.
+  const root = mkdtempSync(join(tmpdir(), 'ac-sl-plain-'));
+  spawnSync('git', ['init', '-q', '-b', 'main', root], { encoding: 'utf8' });
+  spawnSync('git', ['-C', root, '-c', 'user.email=a@b.c', '-c', 'user.name=a', 'commit', '-q', '--allow-empty', '-m', 'init'],
+    { encoding: 'utf8' });
+  const home = mkdtempSync(join(tmpdir(), 'ac-sl-plain-home-'));
+  mkdirSync(join(home, '.astro', 'code'), { recursive: true });
+  const now = Math.floor(Date.now() / 1000);
+  const blob = {
+    session_id: 's1', workspace: { current_dir: root }, model: { id: 'claude-opus-5-5', display_name: 'Opus 5.5' },
+    context_window: { context_window_size: 1_000_000, total_input_tokens: 520_000 },
+    rate_limits: { five_hour: { used_percentage: 48, resets_at: now + 3600 },
+                   seven_day: { used_percentage: 62, resets_at: now + 4 * 86_400 } },
+  };
+  const hook = join(FRAMEWORK, 'hooks', 'astro-statusline.mjs');
+  const render = (columns) => spawnSync(process.execPath, [hook, join(home, '.claude')], {
+    input: JSON.stringify(blob), encoding: 'utf8',
+    env: { ...process.env, HOME: home, NO_COLOR: '1', COLUMNS: String(columns) },
+  }).stdout;
+
+  const at147 = render(147);
+  assert.equal(at147.split('\n').length, 1, `one line at 147:\n${at147}`);
+  assert.match(at147, /ctx [█░]{5} 52%/, `the context bar at 147:\n${at147}`);
+  assert.match(at147, /7d [█░]{5} 62%/, `the quota bars at 147:\n${at147}`);
+  assert.match(at147, /⎇ main/, 'the branch in full');
+
+  // Exactly as wide as the line with bars: bars. One column less: numbers, never a cut branch.
+  const barredWidth = visibleWidth(at147);
+  const exact = render(barredWidth);        // the columns the line with bars takes, dot included
+  assert.match(exact, /[█░]/, `bars at their own width:\n${exact}`);
+  assert.match(exact, /⎇ main/, `and the branch whole:\n${exact}`);
+  const tighter = render(barredWidth - 1);
+  assert.doesNotMatch(tighter, /[█░]/, `no bars one column short:\n${tighter}`);
+  assert.match(tighter, /⎇ main/, `the branch is not cut to make room for bars:\n${tighter}`);
+  for (const [out, columns] of [[at147, 147], [exact, barredWidth], [tighter, barredWidth - 1]]) {
+    for (const row of out.split('\n')) assert.ok(visibleWidth(row) <= columns, `overflow at ${columns}: ${row}`);
+  }
+});
+
 test('the wide line with both quota bars fits a typical terminal at 110 and 100 columns', () => {
   const now = Math.floor(Date.now() / 1000);
   const rateLimits = {

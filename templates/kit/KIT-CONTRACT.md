@@ -59,6 +59,187 @@ Artifacts are objects `{ "path": "<relative path>", "tags": ["email_attachment"]
 Astro attaches when replying by email. Zero tagged artifacts = text-only reply.
 Many equally-primary files? Bundle them into one zip and tag the zip.
 
+## Data sources (`sources[]`, manifest phase 102)
+
+A kit may declare SQL Server data sources it reads at run time. **No credentials,
+connection strings or hosts ever go in the kit** — bindings (which database a source
+points at, and its login) live in astroport, never here (ADR-012).
+
+### Anatomy
+
+```
+src/sources/<id>/
+├── SOURCE.md      # REQUIRED — what this source is, in prose
+├── schema.json     # REQUIRED — tables/columns Astro can query (plain JSON)
+└── queries/         # OPTIONAL — named, deterministic SQL
+    └── <name>.sql
+```
+
+### `sources[]` in kit.json
+
+```json
+"sources": [
+  { "id": "erp", "engine": "sqlserver", "access": "read_only", "description": "ERP" }
+]
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `id` | yes | `^[a-z][a-z0-9_-]{0,31}$`, unique in the kit, STABLE — renaming is a new source and orphans the old binding |
+| `engine` | yes | strict enum, `sqlserver` only |
+| `access` | yes | strict enum, `read_only` only |
+| `required` | no | boolean, defaults to `true`; phase 105 refuses a job at submit if a required source is unbound |
+| `adhoc` | no | boolean, defaults to `true`. `false` means the agent may run ONLY this source's named queries — free SQL is rejected — and the source must declare at least one named query |
+| `description` | yes | 1..500 chars |
+
+**A non-empty `sources[]` requires `contract_version` to satisfy `^1.1.0`** — the
+runtime tools that consume sources ship in phase 105, and an instance still on the
+1.0.0 runtime contract must never see this kit, so it is simply filtered out rather
+than crashing on tools it does not have.
+
+### `schema.json` shape
+
+`schema.json` is **plain JSON** (RFC 8259), validated against
+`tools/schemas/source-schema.v1.schema.json`:
+
+```json
+{
+  "version": 1,
+  "tables": {
+    "dbo.Orders": {
+      "purpose": "Order header records",
+      "kind": "table",
+      "columns": {
+        "OrderId": { "meaning": "Primary key", "type": "int", "key": true },
+        "CustomerId": { "meaning": "Customer reference", "type": "int" },
+        "Total": { "meaning": "Order total", "type": "decimal(18,2)" }
+      }
+    }
+  }
+}
+```
+
+- Plain JSON only: double-quoted keys and strings, **no comments** (`//` or `/* */`), **no
+  trailing commas**, no `NaN`/`Infinity`. One leading UTF-8 BOM is tolerated; nothing
+  else outside standard JSON is.
+- **Duplicate keys are rejected** at every level (top level, `tables`, `columns`, inside a
+  table or column object, inside `values`) and the error names the duplicated key — a
+  standard JSON parser would silently keep the last value, so both validators refuse it.
+- `version` is the number `1`. `tables` is an object keyed by table.
+- Table keys are **schema-qualified** (`dbo.Orders`, or bracketed `[dbo].[v_Open Orders]`)
+  — an unqualified key like `v_OpenOrders` is rejected.
+- Every table needs `purpose`; every column needs `meaning`. **Both are non-empty
+  strings** — a number, `null`, `true`/`false` or an array is rejected.
+- Optional on a table: `kind` (`"table"`|`"view"`), `grain` (string), `rows` (a string such
+  as `"~2M"` or an integer), `columns` (object), `rules` (array of strings).
+- Optional on a column: `type` (string), `key` (boolean), `joins` (a
+  `"schema.table.column"` string), `unit` (string), `tz` (string), `values` (an object
+  mapping each code to a string label), `sensitive` (boolean).
+- Unknown keys are rejected everywhere in this file — a typo surfaces at publish, not at
+  query time.
+- A `joins` target that is not declared in this file is a WARNING, never a rejection —
+  joining to another kit's or another source's table is legitimate.
+
+### Named queries (`src/sources/<id>/queries/<name>.sql`)
+
+Named queries are a **deterministic contract**, not samples: the header declares exactly
+what the query takes and returns, and phase 104 enforces it at run time so a changed
+database never silently feeds the kit different data.
+
+```sql
+-- @name open_orders
+-- @description Open orders for a customer
+-- @param CustomerId int required
+-- @returns OrderId int, Total decimal(18,2)
+SELECT OrderId, Total FROM dbo.Orders WHERE CustomerId = @CustomerId
+```
+
+- `-- @name <name>` — exactly once, must equal the file stem, `^[a-z][a-z0-9_]{0,63}$`.
+- `-- @description <text>` — exactly once, non-empty.
+- `-- @param <Name> <sqltype> required|optional [default=<literal>]` — zero or more.
+  The `required`/`optional` qualifier has no implicit default; a `default=` is legal
+  only on `optional`. Example forms: `@param Status nvarchar(20) optional default=Open`,
+  `@param Limit int optional default=100`, `@param Since date optional default=2026-01-01`.
+- `-- @returns <Col> <sqltype>, <Col> <sqltype>, ...` — **REQUIRED**, exactly once, at
+  least one column. Phase 104 fails the call at run time if the live result's columns
+  differ in name, order or type family from this declaration.
+- `-- @max_rows <n>` — optional, at most once, a positive integer (`^[1-9][0-9]*$`).
+- Every `@Name` used in the body must be declared, and every declared param must be used
+  (case-insensitive match, e.g. `@customerid` satisfies `@param CustomerId`).
+- The body must be a **single `SELECT` or `WITH … SELECT`** statement (one trailing `;`
+  and comments are fine): no `INSERT UPDATE DELETE MERGE EXEC EXECUTE DROP ALTER CREATE
+  TRUNCATE GRANT REVOKE DENY INTO DECLARE OPENROWSET OPENQUERY OPENDATASOURCE BULK DBCC
+  BACKUP RESTORE SHUTDOWN KILL USE WAITFOR RECONFIGURE`, no stacked statements. This is a
+  static guard — the real protection at run time is the read-only DB login (ADR-012) plus
+  phase 104's own re-check.
+
+### Supported SQL Server types (`schemas/sqlserver-types.v1.json`)
+
+Case-insensitive (`NVARCHAR(MAX)` = `nvarchar(max)`); a type is one token, no whitespace.
+
+| Type | Args | A `default=` literal must be |
+|---|---|---|
+| `bit` | none | `0`, `1`, `true` or `false` |
+| `tinyint` / `smallint` / `int` / `bigint` | none | an integer in 0..255 / -32768..32767 / int32 / int64 |
+| `decimal(p[,s])` / `numeric(p[,s])` | precision 1..38, scale 0..precision (bare = `(18,0)`) | at most `s` decimals and `p-s` integer digits |
+| `money` / `smallmoney` | none | at most 4 decimals, within ±922,337,203,685,477.5808 (max …5807) / ±214,748.3648 (max …3647) |
+| `float[(n)]` / `real` | `n` 1..53 (1..24 is `real`) | `0`, or a magnitude in 2.23E-308..1.79E+308 (`real`: 1.18E-38..3.40E+38); smaller non-zero values are rejected as underflow |
+| `char(n)` / `nchar(n)` | length, max 8000 / 4000 | at most `n` UTF-16 units |
+| `varchar(n\|max)` / `nvarchar(n\|max)` | length or `max`, max 8000 / 4000 | at most `n` UTF-16 units |
+| `date` | none | `YYYY-MM-DD`, a real calendar date in 0001-01-01..9999-12-31 |
+| `datetime` / `smalldatetime` | none | `YYYY-MM-DD[THH:MM[:SS[.fff]]]` in 1753-01-01..9999-12-31T23:59:59.997 / 1900-01-01..2079-06-06T23:59:29.998, ≤ 3 fractional digits |
+| `datetime2[(0..7)]` | fractional-seconds scale (default 7) | as `datetime`, 0001-01-01..9999-12-31, ≤ scale fractional digits |
+| `datetimeoffset[(0..7)]` | fractional-seconds scale (default 7) | as `datetime2` plus `Z` or `±HH:MM` within ±14:00; the UTC instant must also be in range |
+| `time[(0..7)]` | fractional-seconds scale (default 7) | `HH:MM[:SS[.f]]`, ≤ scale fractional digits |
+| `uniqueidentifier` | none | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (hex, no braces) |
+
+The ranges are data in `sqlserver-types.v1.json` and are compared exactly (integers and
+digit strings, never floating point), so the offline tools and the server always agree.
+Stricter than SQL Server in a few places on purpose: extra decimals or fractional-second
+digits are rejected rather than rounded.
+
+### Text rules (how every sources check reads text)
+
+The offline tools and the server read `SOURCE.md`, query files and `contract_version`
+with one explicit set of rules, so they always reach the same verdict:
+
+- Files are UTF-8; one leading BOM is dropped and invalid bytes become U+FFFD.
+- **Whitespace is exactly** space, tab, `\n`, `\r`, form feed, vertical tab and U+FEFF (a
+  stray BOM). Nothing else counts: a `SOURCE.md` holding only a non-breaking space,
+  U+0085, U+2028/U+2029 or `\x1c`–`\x1f` is **not** empty, and a non-breaking space does
+  not separate the words of a `@param`/`@returns` line.
+- Lines split on `\n` only; a trailing `\r` is dropped, so CRLF files work. U+2028,
+  U+2029, U+0085 and a lone `\r` inside a line are ordinary characters (e.g. inside a
+  `@description`).
+- Digits are ASCII `0-9` only (in `default=` literals, `@max_rows`, type arguments and
+  `contract_version`, which also allows no leading zeros such as `^01.1.0`). SQL keywords
+  in the body guard match ASCII letters only, on ASCII word boundaries.
+- A string `default=` is measured in UTF-16 code units, as SQL Server counts
+  `nvarchar(n)`: an emoji takes two.
+- `schema.json` strings are never trimmed: `"purpose": " "` is non-empty.
+
+### Check IDs
+
+Every rejection names the check ID plus the source id, file, param or column involved.
+
+| ID | Level | Rule |
+|---|---|---|
+| SRC-01 | FAIL | Invalid `sources[]` entry (id/engine/access/required/adhoc/description/unknown key) |
+| SRC-02 | FAIL | Duplicate source id |
+| SRC-03 | FAIL | Non-empty `sources` without `contract_version` satisfying `^1.1.0` |
+| SRC-04 | FAIL | `SOURCE.md` missing or empty |
+| SRC-05 | FAIL | `schema.json` missing (the exact name, lowercase) |
+| SRC-06 | FAIL | `schema.json` is not plain JSON (syntax, comment, trailing comma, duplicate key, `NaN`) or breaks the shape |
+| SRC-07 | WARN | A `joins` target table is not declared in the same file — never blocks |
+| SRC-08 | FAIL | Malformed query header (`@name`/`@description`, unknown `@tag`) |
+| SRC-09 | FAIL | A body `@Param` is undeclared, or a declared param is unused |
+| SRC-10 | FAIL | Bad `@param` line (name, type, qualifier, default) |
+| SRC-11 | FAIL | Bad `@returns` (missing, empty, untyped/unknown column type, duplicate column) |
+| SRC-12 | FAIL | Bad `@max_rows` (not a positive integer, duplicated) |
+| SRC-13 | FAIL | Body is not a single `SELECT`/`WITH…SELECT` |
+| SRC-14 | FAIL | `adhoc: false` on a source with zero named queries |
+| SRC-15 | FAIL | Body carries a locking/isolation hint (`WITH (NOLOCK)`, `(NOLOCK)`, `READUNCOMMITTED`, `READPAST`, `UPDLOCK`, …) or `SET TRANSACTION ISOLATION LEVEL` — queries always run READ COMMITTED. Comments and string literals are ignored; a column named like a hint must be bracketed (`[Snapshot]`) |
+
 ## The recipe (`src/recipes/<id>.yaml`)
 
 The recipe is the kit's execution contract: `name`, `description`, `version`, and a

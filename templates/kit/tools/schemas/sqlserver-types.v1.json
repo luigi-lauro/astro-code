@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "types": [
+    { "name": "bit", "args": "none", "literal": "bit" },
+    { "name": "tinyint", "args": "none", "literal": "int", "bounds": { "min": 0, "max": 255 } },
+    { "name": "smallint", "args": "none", "literal": "int", "bounds": { "min": -32768, "max": 32767 } },
+    { "name": "int", "args": "none", "literal": "int", "bounds": { "min": -2147483648, "max": 2147483647 } },
+    { "name": "bigint", "args": "none", "literal": "int", "bounds": { "min": "-9223372036854775808", "max": "9223372036854775807" } },
+    { "name": "decimal", "args": "precision_scale", "literal": "decimal", "bounds": { "maxPrecision": 38 } },
+    { "name": "numeric", "args": "precision_scale", "literal": "decimal", "bounds": { "maxPrecision": 38 } },
+    { "name": "money", "args": "none", "literal": "decimal", "bounds": { "min": "-922337203685477.5808", "max": "922337203685477.5807", "maxScale": 4 } },
+    { "name": "smallmoney", "args": "none", "literal": "decimal", "bounds": { "min": "-214748.3648", "max": "214748.3647", "maxScale": 4 } },
+    { "name": "float", "args": "mantissa", "literal": "float", "bounds": { "max": "1.79E+308", "minPositive": "2.23E-308", "maxMantissa": 53, "realMaxMantissa": 24 } },
+    { "name": "real", "args": "none", "literal": "float", "bounds": { "max": "3.40E+38", "minPositive": "1.18E-38" } },
+    { "name": "char", "args": "length", "literal": "string", "bounds": { "maxLength": 8000 } },
+    { "name": "varchar", "args": "length_or_max", "literal": "string", "bounds": { "maxLength": 8000 } },
+    { "name": "nchar", "args": "length", "literal": "string", "bounds": { "maxLength": 4000 } },
+    { "name": "nvarchar", "args": "length_or_max", "literal": "string", "bounds": { "maxLength": 4000 } },
+    { "name": "date", "args": "none", "literal": "date", "bounds": { "min": "0001-01-01T00:00:00", "max": "9999-12-31T23:59:59.9999999" } },
+    { "name": "datetime", "args": "none", "literal": "datetime", "bounds": { "min": "1753-01-01T00:00:00", "max": "9999-12-31T23:59:59.997", "maxFraction": 3 } },
+    { "name": "datetime2", "args": "fraction", "literal": "datetime", "bounds": { "min": "0001-01-01T00:00:00", "max": "9999-12-31T23:59:59.9999999" } },
+    { "name": "smalldatetime", "args": "none", "literal": "datetime", "bounds": { "min": "1900-01-01T00:00:00", "max": "2079-06-06T23:59:29.998", "maxFraction": 3 } },
+    { "name": "datetimeoffset", "args": "fraction", "literal": "datetimeoffset", "bounds": { "min": "0001-01-01T00:00:00", "max": "9999-12-31T23:59:59.9999999", "maxOffsetMinutes": 840 } },
+    { "name": "time", "args": "fraction", "literal": "time" },
+    { "name": "uniqueidentifier", "args": "none", "literal": "uuid" }
+  ]
+}

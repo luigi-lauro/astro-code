@@ -35,6 +35,7 @@ _KNOWN_KEYWORDS = frozenset(
         "enum",
         "pattern",
         "minLength",
+        "maxLength",
         "required",
         "properties",
         "additionalProperties",
@@ -162,6 +163,8 @@ def validate(
         errors.extend(_check_pattern(schema, instance, path, root_schema))
     if "minLength" in schema:
         errors.extend(_check_min_length(schema, instance, path, root_schema))
+    if "maxLength" in schema:
+        errors.extend(_check_max_length(schema, instance, path, root_schema))
     if "required" in schema:
         errors.extend(_check_required(schema, instance, path, root_schema))
     if "properties" in schema:
@@ -341,6 +344,22 @@ def _check_min_length(schema, instance, path, root_schema):
                 path,
                 "minLength",
                 f"string length {len(instance)} is shorter than minLength {n}",
+            )
+        ]
+    return []
+
+
+def _check_max_length(schema, instance, path, root_schema):
+    if not isinstance(instance, str):
+        return []
+    n = schema["maxLength"]
+    # len() on a str counts code points, matching JSON Schema's maxLength.
+    if len(instance) > n:
+        return [
+            Error(
+                path,
+                "maxLength",
+                f"string length {len(instance)} is longer than maxLength {n}",
             )
         ]
     return []
