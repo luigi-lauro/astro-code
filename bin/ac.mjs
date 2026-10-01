@@ -163,7 +163,9 @@ const ALLOWED_FLAGS = {
   'agent-tools clear': [],
   // #63 — the text is an argument, not a flag: `--note` (what `backlog add` takes) used to
   // be ignored here and the call read the note instead of writing it.
-  'backlog note': [],
+  'backlog note': ['append', 'replace'],
+  // #106 — a plain write that would drop an existing note is refused; these say what to do.
+  'phase note': ['append', 'replace'],
   'milestone complete': ['force'],
   // Phase 23 (P5) — read-only, but still allowlisted: a typo'd flag on the sweep's
   // own read must not silently degrade into the human-readable form when `--json`
@@ -209,6 +211,14 @@ function checkFlags(key, flags) {
   const got = unknown.map((f) => `--${f}`).join(', ');
   const ok = allowed.length ? `accepted: ${allowed.map((f) => `--${f}`).join(', ')}` : 'this command takes no flags';
   die(`unknown flag${unknown.length > 1 ? 's' : ''} for \`ac ${key}\`: ${got} (${ok})`);
+}
+// #106 — `ac phase note` / `ac backlog note` text and write mode. The flags are booleans,
+// but the parser hands a flag the next word as its value, so `--append "<text>"` and
+// `"<text>" --append` must both read the same.
+function noteWrite(pos, flags) {
+  const text = [...pos.slice(2), ...['append', 'replace'].map((f) => flags[f]).filter((v) => typeof v === 'string')].join(' ');
+  return { text, write: pos.length > 2 || text !== '' || flags.append !== undefined || flags.replace !== undefined,
+    opts: { append: flags.append !== undefined, replace: flags.replace !== undefined } };
 }
 // #37 — work may only be put into a milestone the registry knows: planned or active. An
 // unclaimed number is how a phase used to reference a milestone nobody had reserved (#32's
@@ -378,7 +388,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac backlog list [--all] [--json]    open ideas (oldest first); --all includes archived/promoted
   ac backlog add "<idea>" [--note …]  capture an idea (no phase/milestone spent)
   ac backlog show <id>                print the raw item as JSON
-  ac backlog note <id> ["<text>"]     read/set/clear an item's note (the title stays fixed)
+  ac backlog note <id> ["<text>"] [--append|--replace]  read/set/clear an item's note (the title stays fixed)
   ac backlog link <id> --phase N      commit the item to a phase already in flight
   ac backlog promote <id>             claim a phase number and start it from this idea
   ac backlog archive <id> --kind declined|obsolete --reason "…"  file the idea WITHOUT doing it
@@ -415,7 +425,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac phase surprise <phase> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]
                                        record what an /astro-execute run hit sideways (silent; for the milestone sweep)
   ac phase effort <phase> [<level>]   read/resolve (or set) the per-phase effort dial (light|standard|deep)
-  ac phase note <phase> ["<text>"]    read/set/clear a durable phase note (survives ROADMAP.md renders)
+  ac phase note <phase> ["<text>"] [--append|--replace]  read/set/clear a durable phase note (survives ROADMAP.md renders)
   ac phase milestone <phase> [<N>]    read/correct which milestone a phase belongs to (never moves the project)
   ac flow init                        ensure main + develop exist (gitflow, opt-in)
   ac flow                             create+switch to feature/m<N> off develop
@@ -843,13 +853,15 @@ async function main() {
           die(`\`ac backlog note\` takes the text as an argument, not --note: ac backlog note ${item.id} "<text>" (nothing was changed)`);
         }
         checkFlags('backlog note', flags);
-        if (pos.length < 3) {
+        const nw = noteWrite(pos, flags);
+        if (!nw.write) {
           console.log(item.note ?? '');
         } else {
-          const updated = await setBacklogNote(r, item.id, pos.slice(2).join(' '));
+          let updated;
+          try { updated = await setBacklogNote(r, item.id, nw.text, nw.opts); } catch (e) { die(e.message); }
           console.log(
             updated.note
-              ? `✓ backlog ${updated.id} note updated`
+              ? `✓ backlog ${updated.id} note ${nw.opts.append ? 'appended' : 'updated'} (${updated.note.length} chars)`
               : `✓ backlog ${updated.id} note cleared`,
           );
         }
@@ -2186,16 +2198,23 @@ async function main() {
         //   ac phase note <n> "<text>"   WRITE: persist it; the renderer emits it
         //   ac phase note <n> ""         CLEAR
         // ROADMAP.md is generated, so this is the only place such a note survives.
-        if (!ph) die('usage: ac phase note <phase> ["<text>"]');
-        if (pos.length < 3) {
+        //   ac phase note <n> --append "<text>"   ADD a line under the existing note
+        //   ac phase note <n> --replace "<text>"  OVERWRITE it — a plain WRITE that would
+        //                                         drop an existing note is refused (#106)
+        if (!ph) die('usage: ac phase note <phase> ["<text>"] [--append | --replace]');
+        checkFlags('phase note', flags);
+        const nw = noteWrite(pos, flags);
+        if (!nw.write) {
           console.log(ph.note ?? '');
         } else {
-          const text = pos.slice(2).join(' ');
-          const updated = await setPhaseNote(r, ph.slug, text);
+          let updated;
+          try { updated = await setPhaseNote(r, ph.slug, nw.text, nw.opts); } catch (e) { die(e.message); }
           console.log(
-            updated.note
-              ? `✓ phase ${ph.number} "${ph.name}" note: ${updated.note}`
-              : `✓ phase ${ph.number} "${ph.name}" note cleared`,
+            !updated.note
+              ? `✓ phase ${ph.number} "${ph.name}" note cleared`
+              : nw.opts.append
+                ? `✓ phase ${ph.number} "${ph.name}" note appended (${updated.note.length} chars): ${nw.text.trim()}`
+                : `✓ phase ${ph.number} "${ph.name}" note: ${updated.note}`,
           );
         }
       } else if (sub === 'milestone') {

@@ -277,7 +277,8 @@ test('setBacklogNote sets, replaces and clears a note on an open item', async ()
   const { addBacklog, setBacklogNote, findBacklog } = await import('../lib/backlog.mjs');
   const { entry: item } = await addBacklog(root, { title: 'A parked idea', note: 'first thoughts' });
 
-  await setBacklogNote(root, item.id, 'second thoughts, sharper');
+  // #106 — overwriting a note is a deliberate act: --replace.
+  await setBacklogNote(root, item.id, 'second thoughts, sharper', { replace: true });
   assert.equal(findBacklog(root, item.id).note, 'second thoughts, sharper');
 
   await setBacklogNote(root, item.id, '   ');
@@ -293,7 +294,7 @@ test('setBacklogNote never touches the title, the id or the capture time', async
   const { entry: item } = await addBacklog(root, { title: 'Stable identity', note: 'a' });
   const before = findBacklog(root, item.id);
 
-  await setBacklogNote(root, item.id, 'b');
+  await setBacklogNote(root, item.id, 'b', { replace: true });
   const after = findBacklog(root, item.id);
   assert.equal(after.id, before.id);
   assert.equal(after.title, before.title, 'the title seeds the id and the declined-match check');
