@@ -85,6 +85,11 @@ import { STAGE_WORK } from '../lib/principlebrief.mjs';
 import { shortlist, askStore, cite, usageReview, clashesFor, projectContext } from '../lib/retrieval.mjs';
 import { sweep, advanceSweep } from '../lib/mine.mjs';
 import { findAstroRoot } from '../hooks/_astro-ctx.mjs';
+import {
+  connect as fleetConnect, disconnect as fleetDisconnect, setPaused as fleetSetPaused,
+  setColor as fleetSetColor, status as fleetStatus,
+} from '../lib/fleet.mjs';
+import { configTargets } from '../lib/hosts/claude.mjs';
 
 function parseArgs(args) {
   const flags = {};
@@ -198,6 +203,15 @@ const ALLOWED_FLAGS = {
   'principles brief': ['stage', 'work', 'files', 'rules-only', 'by', 'json'],
   'principles ask': ['stage', 'by', 'json'],
   'principles cite': ['stage', 'by'],
+  // The fleet connector writes a credential and user-level hooks; a typo'd flag must
+  // not silently connect with the default colour or without --hide-names.
+  'fleet connect': ['token', 'color', 'name', 'hide-names'],
+  'fleet status': ['json'],
+  'fleet pause': [],
+  'fleet resume': [],
+  'fleet disconnect': [],
+  'fleet color': [],
+  'fleet hook': [],
   // Phase 26 (P1) — the transcript sweep. Read-only towards the watermark unless
   // --advance is given; a typo'd flag must not silently degrade into the wrong scope.
   'principles mine': ['all', 'project', 'rescan', 'json', 'advance', 'keep'],
@@ -456,6 +470,13 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac tune [--user] [--undo]           apply astro-recommended Claude settings (additive, reversible)
   ac statusline [install|preview]     wire the rich statusline (recap·model·ctx-bar·M/P) or preview it
   ac statusline gauges [<gauge|all> <both|bar|percent>]  what each gauge (ctx, 5h, 7d, cap) shows (~/.astro/config.json)
+  ac fleet connect <url> --token <t> [--color #rrggbb] [--name <label>] [--hide-names]
+                                       report every Claude Code session on this machine to an
+                                       Astro Fleet (user-level hooks + ~/.astro/fleet.json)
+  ac fleet status [--json]            URL, redacted token, colour, paused, queue depth, last send/error
+  ac fleet pause | resume             stop / restart reporting (the hook exits at once while paused)
+  ac fleet color <#rrggbb>            change the brand colour (sent with the next batch)
+  ac fleet disconnect                 remove only the fleet hooks; delete its config and queue
   ac install | uninstall              (un)install commands + agents into ~/.claude
   ac update [clone-path]              git pull + refresh the global CLI and commands
   ac path [sub]                       print the framework dir, symlinks resolved (e.g. ac path workflows)
@@ -2672,6 +2693,82 @@ async function main() {
       return;
     }
 
+    // Astro Fleet connector (lib/fleet.mjs, hooks/_astro-fleet.mjs). Needs no project:
+    // it is machine-level, and reports sessions in any repo.
+    case 'fleet': {
+      const sub = pos[0];
+      const usage = 'usage: ac fleet connect <url> --token <t> [--color #rrggbb] [--name <label>] [--hide-names] | status [--json] | pause | resume | color <#rrggbb> | disconnect';
+      if (!sub) die(usage);
+      checkFlags(`fleet ${sub}`, flags);
+      const configDirs = [...configTargets().keys()];
+      switch (sub) {
+        case 'connect': {
+          let url = pos[1];
+          // `--hide-names <url>` parses as a flag value; give the URL back.
+          let hide = flags['hide-names'];
+          if (typeof hide === 'string') { if (!url) url = hide; hide = true; }
+          if (!url) die(usage);
+          const res = await fleetConnect({
+            url, token: flags.token, color: flags.color, name: flags.name,
+            hideNames: hide === undefined ? undefined : !!hide,
+            frameworkRoot: FRAMEWORK_ROOT, hooksDir: join(ASTRO_HOME, 'hooks'), configDirs,
+          });
+          if (!res.ok) die(`not connected: ${res.error}`);
+          console.log(`connected ✓  ${res.config.url}  colour ${res.config.color}${res.config.name ? `  as ${res.config.name}` : ''}${res.config.hide_names ? '  (project names hashed)' : ''}`);
+          for (const w of res.wired) {
+            if (w.ok) console.log(`✓ hooks → ${w.file}`);
+            else console.error(`⚠ hooks NOT installed: ${w.error}`);
+          }
+          console.log('  new Claude Code sessions report to the fleet; a session already running picks it up on restart');
+          return;
+        }
+        case 'status': {
+          const s = fleetStatus({ configDirs });
+          if (flags.json) { json(s); return; }
+          if (!s.connected) { console.log('• not connected — `ac fleet connect <url> --token <t>`'); return; }
+          console.log(`Fleet:     ${s.url}`);
+          console.log(`Token:     ${s.token}`);
+          console.log(`Colour:    ${s.color}${s.name ? `   Name: ${s.name}` : ''}${s.hide_names ? '   (project names hashed)' : ''}`);
+          console.log(`Reporting: ${s.paused ? 'paused' : s.stopped ? 'STOPPED — token refused' : 'on'}`);
+          console.log(`Queue:     ${s.queue} event(s)${s.backoff_until ? `, backing off until ${s.backoff_until}` : ''}`);
+          console.log(`Last sent: ${s.last_success || 'never'}`);
+          if (s.last_error) console.log(`Last error: ${s.last_error.at}  ${s.last_error.message}`);
+          const missing = s.hooks.filter((h) => !h.installed);
+          if (missing.length) console.log(`⚠ hooks missing in ${missing.map((h) => h.dir).join(', ')} — re-run \`ac fleet connect\``);
+          return;
+        }
+        case 'pause':
+        case 'resume': {
+          const res = fleetSetPaused(sub === 'pause');
+          if (!res.ok) die(res.error);
+          console.log(sub === 'pause' ? '✓ fleet reporting paused — `ac fleet resume` to restart' : '✓ fleet reporting resumed');
+          return;
+        }
+        case 'color': {
+          const res = fleetSetColor(pos[1]);
+          if (!res.ok) die(res.error);
+          console.log(`✓ colour ${res.config.color} — sent with the next batch`);
+          return;
+        }
+        case 'disconnect': {
+          const res = fleetDisconnect({ configDirs });
+          for (const u of res.unwired) {
+            if (!u.ok) console.error(`⚠ ${u.error}`);
+            else if (u.changed) console.log(`✓ fleet hooks removed from ${u.file}`);
+          }
+          console.log('✓ disconnected — fleet config and queue deleted');
+          return;
+        }
+        case 'hook':
+          // The same script the installed hook runs; reads stdin, exits 0, prints nothing.
+          await import('../hooks/astro-fleet-hook.mjs');
+          return;
+        default:
+          die(usage);
+      }
+      return;
+    }
+
     case 'install': {
       const res = installClaude(FRAMEWORK_ROOT);
       // remember the clone path when installing from a git checkout, so `ac update` works later
@@ -2733,6 +2830,13 @@ async function main() {
     }
 
     case 'uninstall': {
+      // The fleet hook runs from ~/.astro/code/hooks, which uninstall deletes: leaving
+      // its settings.json entries behind would fail on every tool call in every session.
+      const fleet = fleetStatus();
+      if (fleet.connected) {
+        fleetDisconnect({ configDirs: [...configTargets().keys()] });
+        console.log('✓ fleet reporting disconnected (its hooks run from the astro home)');
+      }
       const res = uninstallClaude();
       console.log(`✓ removed ${res.removed} symlink(s) across all config dirs and deleted ${res.home}`);
       return;
