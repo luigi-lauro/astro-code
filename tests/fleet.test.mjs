@@ -30,22 +30,36 @@ const HOOK = join(FRAMEWORK, 'hooks', 'astro-fleet-hook.mjs');
 const tmp = (p = 'ac-fleet-') => mkdtempSync(join(tmpdir(), p));
 
 // A fake fleet: answers each request with the next scripted response (the last one
-// repeats) and records every body it received.
-async function fakeFleet(script = [{ status: 200 }]) {
+// repeats) and records every body it received. Mirrors the real fleet's order of checks
+// (docs/forge/INGEST.md): a scripted 401/429/404/… stands for a refusal that happens
+// BEFORE the events check; a batch that passes it with no events gets
+// 400 {"error":"no recognised events"} and writes nothing. `acceptEmpty` plays a later
+// fleet that answers an empty batch with 200. `sessions` is what the fleet would store.
+async function fakeFleet(script = [{ status: 200 }], { acceptEmpty = false } = {}) {
   const calls = [];
+  const sessions = new Set();
   let i = 0;
   const srv = createServer((req, res) => {
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      calls.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body || 'null') });
+      const parsed = JSON.parse(body || 'null');
+      calls.push({ url: req.url, auth: req.headers.authorization, body: parsed });
       const r = script[Math.min(i++, script.length - 1)];
-      res.writeHead(r.status, { 'content-type': 'application/json', ...(r.headers || {}) });
-      res.end(JSON.stringify(r.status === 200 ? { accepted: calls.at(-1).body?.events?.length ?? 0 } : { error: 'x' }));
+      const events = parsed?.events ?? [];
+      let status = r.status;
+      let out = r.body ?? (status === 200 ? { accepted: events.length } : { error: 'x' });
+      if (status === 200 && events.length === 0 && !acceptEmpty) {
+        status = 400;
+        out = { error: 'no recognised events' };
+      }
+      if (status === 200) for (const e of events) sessions.add(e.session_id);
+      res.writeHead(status, { 'content-type': 'application/json', ...(r.headers || {}) });
+      res.end(JSON.stringify(out));
     });
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-  return { url: `http://127.0.0.1:${srv.address().port}`, calls, close: () => new Promise((r) => srv.close(r)) };
+  return { url: `http://127.0.0.1:${srv.address().port}`, calls, sessions, close: () => new Promise((r) => srv.close(r)) };
 }
 
 // A port that was just free: connecting to it is a plain ECONNREFUSED ("server down").
@@ -397,10 +411,9 @@ test('connect probes, writes a 0600 config in a 0700 dir and wires hooks; status
   const r = await connect({ url: `${f.url}/`, token: 'tok-secret-wxyz', color: 'FF8800', name: 'alex', frameworkRoot: FRAMEWORK, hooksDir: join(dir, 'code', 'hooks'), configDirs: [cfgDir], dir });
   await f.close();
   assert.equal(r.ok, true, r.error);
-  const probe = f.calls[0].body;
-  assert.deepEqual(probe.events.map((e) => e.type), ['session_start', 'session_end']);
-  assert.match(probe.events[0].session_id, /^ac-connect-probe-[0-9a-f]+$/);
-  assert.equal(probe.color, '#ff8800');
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(f.calls[0].body, { events: [], color: '#ff8800' }, 'the probe is an empty batch plus the colour, nothing else');
+  assert.equal(f.sessions.size, 0, 'connect leaves no session (and so no bay) on the fleet');
   assert.equal(statSync(fleetPaths(dir).config).mode & 0o777, 0o600);
   assert.equal(statSync(dir).mode & 0o777, 0o700);
   assert.ok(existsSync(join(dir, 'code', 'hooks', 'astro-fleet-hook.mjs')));
@@ -430,6 +443,31 @@ test('connect refuses bad input and a rejected token without writing anything', 
   assert.match(r.error, /401 — token invalid or revoked/);
   assert.ok(!existsSync(fleetPaths(dir).config));
   assert.ok(!existsSync(join(home, '.claude', 'settings.json')));
+});
+
+test('the connect probe passes on 400 "no recognised events" and on 200, and fails on anything else', async () => {
+  const run = async (script, opts) => {
+    const f = await fakeFleet(script, opts);
+    const home = tmp();
+    const dir = join(home, '.astro');
+    const r = await connect({ url: f.url, token: 'tok', frameworkRoot: FRAMEWORK, hooksDir: join(dir, 'h'), configDirs: [join(home, '.claude')], dir });
+    await f.close();
+    assert.ok(f.calls.every((c) => Array.isArray(c.body.events) && c.body.events.length === 0), 'only empty batches are sent');
+    assert.ok(f.calls.every((c) => c.auth === 'Bearer tok'));
+    assert.equal(f.sessions.size, 0);
+    assert.equal(existsSync(fleetPaths(dir).config), r.ok, 'config written exactly when connected');
+    return r;
+  };
+  assert.equal((await run([{ status: 200 }])).ok, true, 'today\'s fleet: 400 no recognised events');
+  assert.equal((await run([{ status: 200 }], { acceptEmpty: true })).ok, true, 'a fleet that accepts empty batches');
+  const other = await run([{ status: 400, body: { error: 'malformed JSON' } }]);
+  assert.equal(other.ok, false);
+  assert.match(other.error, /HTTP 400 — .*malformed JSON/);
+  assert.match((await run([{ status: 400, body: 'no recognised events' }])).error, /HTTP 400/, 'the text must be the JSON error field');
+  assert.match((await run([{ status: 401 }])).error, /token invalid or revoked/);
+  assert.match((await run([{ status: 404 }])).error, /no ingest endpoint at that URL \(is fleet phase 36 deployed\?\)/);
+  assert.match((await run([{ status: 429, headers: { 'retry-after': '1' } }])).error, /rate limited, try again in a second/);
+  assert.match((await run([{ status: 500 }])).error, /HTTP 500/);
 });
 
 // ── the hook process itself ──────────────────────────────────────────────────────
