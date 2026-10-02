@@ -23,11 +23,11 @@ kept as plain files in `.astrocode/`. Numbering + canon are shared via git so mu
 devs never collide.
 
 **The loop (per phase):**
-- `/astro-discuss <n>` — talk through decisions/edge cases → `CONTEXT.md` (optional; skip trivial phases)
+- `/astro-discuss <n>` — talk through decisions/edge cases → `CONTEXT.md` (optional; skip trivial phases; `--challenge` for a thorough numbered-round interview)
 - `/astro-plan <n>` — parallel research → `PLAN.md` (reads CONTEXT.md)
 - `/astro-execute <n>` — wave-based execution, then the AI verify gate
 - `/astro-accept <n>` — human UAT sign-off; this is what actually closes a phase
-- `/astro-autonomous <n>` — runs discuss→plan→execute in one go, then **stops** for you (still need `/astro-accept`)
+- `/astro-autonomous <n>` — runs discuss→plan→execute in one go, then **stops** for you (still need `/astro-accept`; `--challenge` passes through to the discuss step)
 
 **Fast lane for off-the-cuff work:**
 - `/astro-fast "<long unplanned prompt>"` — captures the raw prompt verbatim, distills a
@@ -37,6 +37,7 @@ devs never collide.
   escalates anything systemic back to the full loop. Verified at best — `/astro-accept` closes it.
 
 **Capture without planning:**
+- `/astro-challenge "<idea>"` — challenge an idea before it's a phase: numbered rounds settle decisions, every round saved into a backlog item; promote it later
 - `/astro-backlog` — list what's parked · `/astro-backlog "<idea>"` — file one, no phase spent · `/astro-backlog review` — triage each one (promote/link/archive)
 - `/astro-backlog-promote <id>` — turn a captured idea into a real phase, seeding its captured note into `CONTEXT.md`
 - `/astro-principles [proposed|rejected|all|<id>|<question>]` — list and browse your personal principles (accepted by default)
@@ -44,7 +45,7 @@ devs never collide.
 - `/astro-principles-mine` — sweep this project's past sessions for principles you kept stating (on demand, never automatic)
 
 **Set up & navigate:**
-- `/astro-new-project` — scaffold a new project · `/astro-adopt` — adopt an existing codebase; both give an app-shaped project a one-command container contract (`docker compose up` → healthy, seeded app) and leave `RUN-CONTRACT.md` behind
+- `/astro-new-project` — scaffold a new project · `/astro-adopt` — adopt an existing codebase; both open with a quick-vs-challenge interview fork, then give an app-shaped project a one-command container contract (`docker compose up` → healthy, seeded app) and leave `RUN-CONTRACT.md` behind
 - `/astro-kit-new` — start a new Astro kit (standalone kit project: manifest v4 + recipe + build tooling)
 - `/astro-kit-publish` — publish a kit to a hosted Astro instance (zip with `kit.json` inside → the instance's kit registry)
 - `/astro-kit-convert <source path>` — convert an existing non-kit implementation into a standard Astro kit at verified feature parity with the original
