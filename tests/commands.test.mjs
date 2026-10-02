@@ -735,6 +735,9 @@ const SLOTS = [
   { command: 'astro-challenge.md', slot: '2 fuzzy-match line', start: 'If it resolves only by a fuzzy match', end: 'Otherwise, run `ac backlog add' },
   { command: 'astro-challenge.md', slot: '4 report', start: '4. **Report and hand off.', end: 'Everything about the round format' },
   { command: 'astro-autonomous.md', slot: '--challenge pass-through (already-discussed line)', start: '**Pass-through:** if the user included `--challenge`', end: '## Pipeline (stop at the first hard failure' },
+  // §1 relays what the principles call already settled — a user-facing line the plain
+  // discuss flow guards as '2 principle-settled fork'; under challenge mode it lives here.
+  { command: 'templates/challenge.md', slot: '1 principle-settled relay', start: '## 1. Before round one', end: '## 2. Facts are looked up' },
   { command: 'templates/challenge.md', slot: '5 checkpoint', start: '## 5. Checkpoint every round', end: '## 6. The rubber-stamp nudge' },
   { command: 'templates/challenge.md', slot: '6 rubber-stamp nudge', start: '## 6. The rubber-stamp nudge', end: '## 7. Unknowns' },
   { command: 'templates/challenge.md', slot: '7 unknowns + backlog offer', start: '## 7. Unknowns', end: '## 8. Capture summary' },
