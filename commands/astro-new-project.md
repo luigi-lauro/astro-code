@@ -22,6 +22,23 @@ You are starting a new astro-code project in the current repository.
    line ("a personal principle already settled X — not re-asking") and let it inform the
    rest of the interview rather than dropping it silently; the developer can override on
    the spot.
+3b. **Quick interview, or challenge me?** Right after step 3's principles call, ask
+   one `AskUserQuestion`: "Quick interview, or challenge me?" — options **"Challenge
+   me"** (recommended here: the idea is at its vaguest) first, then **"Quick
+   interview"**.
+   - **Quick interview** → continue with step 4 exactly as written below.
+   - **Challenge me** → ask step 4's app-shape fork first — runnable app vs
+     library/CLI, and if app-shaped the persistence and third-parties follow-ups —
+     exactly as step 4 states them, before anything else (P7). Then, in place of
+     step 4's requirements/constraints interview only, load and apply
+     `` `$(ac path templates)/challenge.md` `` in full. Destinations, written after
+     every round: `.astrocode/PROJECT.md` (vision, stable `REQ-` ids, constraints,
+     the `## Open questions` section) and `.astrocode/CONVENTIONS.md`, plus the
+     method's own `ac decision add` rule for hard-to-reverse choices. Once the
+     method's session ends, continue step 4 from `ac canon push` onward (4a's
+     container scaffold, 4b's cold-start probe and contract copy) unchanged.
+   Never restate the round mechanics here (the Q-format, the checkpoint wording, the
+   nudge) — they live in the template. Never name the standalone challenge command.
 4. Continue the interview to fill in **requirements** (stable `REQ-001` ids) and
    **constraints**. Use `AskUserQuestion` only for genuine forks. Along the way, ask
    **one** `AskUserQuestion` fork that decides whether this step also scaffolds a
