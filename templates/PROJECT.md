@@ -14,6 +14,12 @@
 
 -
 
+## Open questions
+
+<!-- Questions a challenge session left open — recorded as open, never filled with a guess. -->
+
+-
+
 ## Out of scope
 
 -
