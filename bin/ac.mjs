@@ -482,6 +482,9 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac path [sub]                       print the framework dir, symlinks resolved (e.g. ac path workflows)
   ac help                             this help
   ac logo                             the astro-code mark (colour on a terminal or with FORCE_COLOR=1; NO_COLOR wins)
+
+  Challenge mode: /astro-challenge "<idea>|<backlog id>", /astro-discuss <n> --challenge,
+  /astro-autonomous <n> --challenge — /astro-help lists every slash command.
 `;
 
 // A request for help must never run the verb (#14, #50). `--help` is the flag a
