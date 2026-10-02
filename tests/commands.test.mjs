@@ -735,7 +735,8 @@ const SLOTS = [
   { command: 'astro-challenge.md', slot: '2 fuzzy-match line', start: 'If it resolves only by a fuzzy match', end: 'Otherwise, run `ac backlog add' },
   { command: 'astro-challenge.md', slot: '4 report', start: '4. **Report and hand off.', end: 'Everything about the round format' },
   { command: 'astro-autonomous.md', slot: '--challenge pass-through (already-discussed line)', start: '**Pass-through:** if the user included `--challenge`', end: '## Pipeline (stop at the first hard failure' },
-  { command: 'templates/challenge.md', slot: '5-6 checkpoint + rubber-stamp nudge', start: '## 5. Checkpoint every round', end: '## 7. Unknowns' },
+  { command: 'templates/challenge.md', slot: '5 checkpoint', start: '## 5. Checkpoint every round', end: '## 6. The rubber-stamp nudge' },
+  { command: 'templates/challenge.md', slot: '6 rubber-stamp nudge', start: '## 6. The rubber-stamp nudge', end: '## 7. Unknowns' },
   { command: 'templates/challenge.md', slot: '7 unknowns + backlog offer', start: '## 7. Unknowns', end: '## 8. Capture summary' },
   { command: 'templates/challenge.md', slot: '8 capture summary', start: '## 8. Capture summary', end: null },
 ];

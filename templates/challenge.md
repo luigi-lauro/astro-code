@@ -74,7 +74,7 @@ never filled with the recommendation.
 
 ## 5. Checkpoint every round
 
-After saving, ask exactly one `AskUserQuestion` — verbatim
+After saving, ask exactly one `AskUserQuestion`, in one line, verbatim —
 "N questions still open — next round or capture now?" — with options "Next round"
 (recommended, while questions remain) and "Capture now". Where no picker exists (a host
 with no `AskUserQuestion`), ask the same question as plain text instead.
