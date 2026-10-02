@@ -727,7 +727,8 @@ const SLOTS = [
 
   // phase 34: challenge mode for /astro-new-project, /astro-adopt and the standalone
   // /astro-challenge command (t12) — the challenge fork and its reporting moments.
-  { command: 'astro-discuss.md', slot: '3b challenge block (capture/agent-refusal line)', start: '3b. **Challenge mode', end: '4. **Capture.' },
+  { command: 'astro-discuss.md', slot: '3b challenge block (agent-refusal line)', start: '3b. **Challenge mode', end: 'With the flag, steps 2–3 above are replaced' },
+  { command: 'astro-discuss.md', slot: '3b challenge block (capture report line)', start: 'With the flag, steps 2–3 above are replaced', end: '4. **Capture.' },
   { command: 'astro-new-project.md', slot: '3-3b principles relay + quick-vs-challenge fork', start: '3. Make ONE call to surface standing personal preferences', end: '4. Continue the interview to fill in' },
   { command: 'astro-adopt.md', slot: '3b quick-vs-challenge fork + shape-report bound', start: '3b. **Quick interview, or challenge me?', end: 'Ask only when genuinely ambiguous' },
   { command: 'astro-challenge.md', slot: '1 outside-project notice', start: '1. **Where the record lives.', end: '2. **Pick the item.' },

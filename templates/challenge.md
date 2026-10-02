@@ -99,9 +99,10 @@ could not commit to one.
 
 At the end of the session, inside a project, if any question is still open, ask one
 `AskUserQuestion` offering to file each as a backlog item (a prototype or spike idea)
-via `ac backlog add "<question>"`. Say nothing when there are no open questions — do not
-ask the question just to get a "no". Never claim a phase number here (no
-`ac phase add`, no `ac backlog promote`) unless the user explicitly asks for one.
+via `ac backlog add "<question>"`. Where no picker exists (a host with no
+`AskUserQuestion`), ask the same offer as plain text instead. Say nothing when there are
+no open questions — do not ask the question just to get a "no". Never claim a phase number
+here (no `ac phase add`, no `ac backlog promote`) unless the user explicitly asks for one.
 
 ## 8. Capture summary
 
