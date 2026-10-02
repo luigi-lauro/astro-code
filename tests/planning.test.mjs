@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initPlanning, phaseContextStatus, CONTEXT_MARKER } from '../lib/planning.mjs';
+import { initPlanning, phaseContextStatus, classifyContext, contextAuthor, CONTEXT_MARKER } from '../lib/planning.mjs';
 import { paths } from '../lib/paths.mjs';
 import { readFileSync } from 'node:fs';
 
@@ -57,6 +57,45 @@ test('phaseContextStatus: an empty CONTEXT.md is a "stub", not "ready"', () => {
   const root = scaffold();
   writeContext(root, '04-oracle', '');
   assert.equal(phaseContextStatus(root, '04-oracle'), 'stub');
+});
+
+// Phase 34 t3 (ADR-069) — the discuss gate is UNTOUCHED by challenge mode: the
+// line-2 `<!-- astro-challenge: N rounds -->` marker is pure prose metadata to the
+// gate, which keys off line 1 exactly as before. These characterization tests pin
+// that fact first, so a future regex change that starts noticing (or rejecting) a
+// second line goes red immediately.
+
+test('phaseContextStatus/classifyContext: human marker on line 1 + a line-2 challenge marker → "ready"/"human"', () => {
+  const root = scaffold();
+  const body = `${CONTEXT_MARKER}\n<!-- astro-challenge: 3 rounds -->\n\n# Phase 04 context\n`;
+  writeContext(root, '04-oracle', body);
+  assert.equal(phaseContextStatus(root, '04-oracle'), 'ready');
+  assert.deepEqual(classifyContext(body), { kind: 'human', author: null });
+});
+
+test('phaseContextStatus/classifyContext: agent marker on line 1 + a line-2 challenge marker → "ready"/agent name preserved', () => {
+  const root = scaffold();
+  const body = '<!-- astro-discuss: captured by agent: x -->\n<!-- astro-challenge: 3 rounds -->\n\nbody\n';
+  writeContext(root, '04-oracle', body);
+  assert.equal(phaseContextStatus(root, '04-oracle'), 'ready');
+  assert.equal(contextAuthor(body), 'x');
+});
+
+test('phaseContextStatus/classifyContext: only the line-2 challenge marker, no discuss marker → "stub"/"stub" (no author)', () => {
+  const root = scaffold();
+  const body = '# Phase 04 context\n<!-- astro-challenge: 3 rounds -->\n\nbody\n';
+  writeContext(root, '04-oracle', body);
+  assert.equal(phaseContextStatus(root, '04-oracle'), 'stub');
+  assert.deepEqual(classifyContext(body), { kind: 'stub', author: null });
+  assert.equal(contextAuthor(body), null);
+});
+
+test('phaseContextStatus/classifyContext: plain line-1 marker with no line 2 is still "ready"/"human" (baseline, unaffected)', () => {
+  const root = scaffold();
+  const body = `${CONTEXT_MARKER}\n\n# Phase 04 context\n`;
+  writeContext(root, '04-oracle', body);
+  assert.equal(phaseContextStatus(root, '04-oracle'), 'ready');
+  assert.deepEqual(classifyContext(body), { kind: 'human', author: null });
 });
 
 // Phase 19 t12 — a project scaffolded by `ac init` carries the lead-with-the-change
