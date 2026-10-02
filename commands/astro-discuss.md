@@ -1,6 +1,6 @@
 ---
 description: Talk through a phase before planning — adaptive questions that surface decisions and edge cases, captured to CONTEXT.md
-argument-hint: <phase number or slug>
+argument-hint: <phase number or slug> [--challenge]
 allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, ToolSearch
 ---
 
@@ -70,6 +70,23 @@ about — and to capture the answers so planning is grounded, not guessed.
      last. Loop until they pick "Ready to capture".
    - If an answer references a doc/decision, read it and let it inform the next round.
    - Treat scope-creep ideas as deferred notes and steer back — don't grow the phase.
+3b. **Challenge mode — only with `--challenge`.** Strip `--challenge` from
+   `$ARGUMENTS` to get the phase number or slug; a plain `/astro-discuss <n>` (no flag)
+   never offers challenge mode and nothing above changes. An agent answering on the
+   operator's behalf (one that would write the `captured by agent:` marker below) never
+   uses challenge mode: it says so, **in one line**, and runs the plain flow instead.
+
+   With the flag, steps 2–3 above are replaced: load and apply
+   `` `$(ac path templates)/challenge.md` `` in full. The 1b debt and 1c backlog riders
+   are still asked first — in round one, exactly as those steps state — before the first
+   numbered round. The destination is this phase's `.astrocode/phases/<slug>/CONTEXT.md`:
+   each round's settled answers are written there immediately after the round, without
+   either provenance marker (a rerun of `/astro-discuss <n> --challenge` reads the file
+   back and continues where it left off). Steps 4–6 below then run as written, including
+   5b's principle capture, with one change to step 4's first line: line 1 is still the
+   unchanged discuss marker, and line 2 is `<!-- astro-challenge: <rounds> rounds -->`
+   carrying the real number of rounds the session asked — never folded into line 1, never
+   hard-coded. The capture report stays **one line**, as step 4 already requires.
 4. **Capture.** Write `.astrocode/phases/<slug>/CONTEXT.md`: the decisions reached,
    the chosen scope, and any open questions/assumptions. Keep it tight — it's the brief
    the planner will obey. CONTEXT.md is a machine-read artifact, not a human message

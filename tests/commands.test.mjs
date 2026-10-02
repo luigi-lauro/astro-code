@@ -724,8 +724,31 @@ const SLOTS = [
   { command: 'astro-principles-mine.md', slot: '2 sightings', start: '2. **Record exact repeats', end: '3. **Group, qualify and lift' },
   { command: 'astro-principles-mine.md', slot: '4 advance', start: '4. **Advance the watermark', end: '5. **Report' },
   { command: 'astro-principles-mine.md', slot: '5 report', start: '5. **Report', end: '## Never' },
+
+  // phase 34: challenge mode for /astro-new-project, /astro-adopt and the standalone
+  // /astro-challenge command (t12) — the challenge fork and its reporting moments.
+  { command: 'astro-discuss.md', slot: '3b challenge block (agent-refusal line)', start: '3b. **Challenge mode', end: 'With the flag, steps 2–3 above are replaced' },
+  { command: 'astro-discuss.md', slot: '3b challenge block (capture report line)', start: 'With the flag, steps 2–3 above are replaced', end: '4. **Capture.' },
+  { command: 'astro-new-project.md', slot: '3-3b principles relay + quick-vs-challenge fork', start: '3. Make ONE call to surface standing personal preferences', end: '4. Continue the interview to fill in' },
+  { command: 'astro-adopt.md', slot: '3b quick-vs-challenge fork + shape-report bound', start: '3b. **Quick interview, or challenge me?', end: 'Ask only when genuinely ambiguous' },
+  { command: 'astro-challenge.md', slot: '1 outside-project notice', start: '1. **Where the record lives.', end: '2. **Pick the item.' },
+  { command: 'astro-challenge.md', slot: '2 fuzzy-match line', start: 'If it resolves only by a fuzzy match', end: 'Otherwise, run `ac backlog add' },
+  { command: 'astro-challenge.md', slot: '4 report', start: '4. **Report and hand off.', end: 'Everything about the round format' },
+  { command: 'astro-autonomous.md', slot: '--challenge pass-through (already-discussed line)', start: '**Pass-through:** if the user included `--challenge`', end: '## Pipeline (stop at the first hard failure' },
+  // §1 relays what the principles call already settled — a user-facing line the plain
+  // discuss flow guards as '2 principle-settled fork'; under challenge mode it lives here.
+  { command: 'templates/challenge.md', slot: '1 principle-settled relay', start: '## 1. Before round one', end: '## 2. Facts are looked up' },
+  { command: 'templates/challenge.md', slot: '5 checkpoint', start: '## 5. Checkpoint every round', end: '## 6. The rubber-stamp nudge' },
+  { command: 'templates/challenge.md', slot: '6 rubber-stamp nudge', start: '## 6. The rubber-stamp nudge', end: '## 7. Unknowns' },
+  { command: 'templates/challenge.md', slot: '7 unknowns + backlog offer', start: '## 7. Unknowns', end: '## 8. Capture summary' },
+  { command: 'templates/challenge.md', slot: '8 capture summary', start: '## 8. Capture summary', end: null },
 ];
 
+// Phase 34 t12 extends this map with the challenge-mode surface: the three callers that
+// fork into challenge mode (astro-discuss.md's existing 3b, astro-new-project.md,
+// astro-adopt.md), the standalone astro-challenge.md command, astro-autonomous.md's
+// --challenge pass-through, and templates/challenge.md itself — read as a sibling file
+// from the templates dir, not through `cmd()` (that helper only knows the commands dir).
 const LOOP_COMMAND_SRC = new Map(
   [
     'astro-discuss.md',
@@ -742,7 +765,15 @@ const LOOP_COMMAND_SRC = new Map(
     'astro-complete-milestone.md',
     'astro-principles-review.md',
     'astro-principles-mine.md',
+    'astro-challenge.md',
+    'astro-new-project.md',
+    'astro-adopt.md',
+    'astro-autonomous.md',
   ].map((name) => [name, cmd(name)]),
+);
+LOOP_COMMAND_SRC.set(
+  'templates/challenge.md',
+  readFileSync(join(ROOT, 'templates', 'challenge.md'), 'utf8'),
 );
 
 test('every reporting slot in the seven loop commands states a bound or a silence rule (C1/C2)', () => {

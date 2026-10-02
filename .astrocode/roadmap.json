@@ -1,16 +1,5 @@
 {
   "version": 1,
   "milestone": 10,
-  "phases": [
-    {
-      "number": 33,
-      "name": "Kit authoring guidance for data sources",
-      "slug": "33-kit-authoring-guidance-for-data-sources",
-      "status": "complete",
-      "milestone": 10,
-      "accepted_by": "matteo.alvazzi@gmail.com",
-      "accepted_kind": "human",
-      "accepted_at": "2026-10-01T13:27:08.545Z"
-    }
-  ]
+  "phases": []
 }

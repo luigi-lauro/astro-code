@@ -19,6 +19,25 @@ already there — then plan only what's *next*, not what already exists.
    aspirations. Draft `.astrocode/PROJECT.md` (vision + the main requirements you can
    infer). Use `AskUserQuestion` to confirm anything genuinely ambiguous (e.g. the
    intended direction, non-obvious conventions). Keep both tight.
+3b. **Quick interview, or challenge me?** This fires as soon as step 3's drafts exist —
+   right after the vision draft, before step 3's confirmation questions, not after them
+   (reading order here is not execution order). Ask one `AskUserQuestion`: options
+   **"Quick interview"** first, recommended here (the code already answers most of it),
+   then **"Challenge me"**.
+
+   On **"Quick interview"**, continue straight into step 3's confirmation exactly as
+   written above — nothing else changes.
+
+   On **"Challenge me"**, step 3's confirmation questions are not asked. Instead, load
+   and apply `` `$(ac path templates)/challenge.md` `` in full: the step-2 astro-mapper
+   report is the fact source (reuse it, never re-spawn the mapper per round), and the
+   questions cover intent only — the vision, what's next, and which observed conventions
+   are deliberate versus accidental — never a fact the map already holds (stack, layout,
+   config). Destinations after every round: `.astrocode/PROJECT.md` (vision, `REQ-` ids,
+   constraints, its `## Open questions` section), `.astrocode/CONVENTIONS.md`, and the
+   method's `ac decision add` rule.
+
+   Either way, steps 4–8 below then run unchanged.
 4. **Give it a one-command boot, adapting to what's already there.** Decide from the
    **astro-mapper** report, never a question: app-shaped (a server entry point / HTTP
    framework dependency / a start script that serves / an existing container image

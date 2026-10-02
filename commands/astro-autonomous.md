@@ -1,6 +1,6 @@
 ---
 description: Run one phase end-to-end — discuss → plan → execute → verify — then stop for your inspection
-argument-hint: <phase number or slug> [--fast]
+argument-hint: <phase number or slug> [--fast] [--challenge]
 allowed-tools: Bash, Read, Write, Workflow, AskUserQuestion
 ---
 
@@ -16,6 +16,12 @@ complete, say so and suggest `/astro-milestone`. Resolve the project root (where
 
 **Pass-through:** if the user included `--fast`, carry it into the plan and execute steps
 below (one-off fast preset; see those commands). Otherwise use the configured tiers.
+
+**Pass-through:** if the user included `--challenge`, carry it into the discuss step below —
+run **`/astro-discuss <number> --challenge`** instead of the plain flow: numbered text rounds
+the human answers, never the agent. If `ac phase context <number>` already prints `ready`, say
+so in one line and point at `/astro-discuss <number> --challenge` to redo it explicitly — never
+re-discussing on its own. Without the flag nothing changes.
 
 ## Pipeline (stop at the first hard failure — never push past a broken gate)
 

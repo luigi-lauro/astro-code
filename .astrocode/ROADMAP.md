@@ -2,6 +2,6 @@
 
 **Milestone 10**
 
-- [x] Phase 33 — Kit authoring guidance for data sources `complete` · planned
+_No phases yet. Add one with `ac phase add <name>`._
 
 <!-- generated from roadmap.json — edits here are overwritten; use `ac phase note <phase> "<text>"` -->

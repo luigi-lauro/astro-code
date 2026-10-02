@@ -211,7 +211,10 @@ test('queue housekeeping: events older than 24 h are dropped and the cap keeps t
   const dir = tmp();
   connected(dir, DOWN);
   fill(dir, fresh);
-  enqueueHookEvent({ hook_event_name: 'Stop', session_id: 'new', cwd: '/w' }, { dir, resolve: () => ({ name: 'w' }) });
+  enqueueHookEvent(
+    { hook_event_name: 'Stop', session_id: 'new', cwd: '/w' },
+    { dir, resolve: () => ({ name: 'w' }), now },
+  );
   const q = readQueue(fleetPaths(dir).queue);
   assert.equal(q.length, QUEUE_MAX);
   assert.equal(q.at(-1).session_id, 'new');

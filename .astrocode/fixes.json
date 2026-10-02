@@ -36,6 +36,12 @@
       "accepted_at": "2026-10-01T07:25:16.761Z",
       "accepted_kind": "human",
       "accepted_by": "matteo.alvazzi@gmail.com"
+    },
+    {
+      "id": "2026-10-02-codex-astro-config-offers-claude-models",
+      "title": "codex-astro-config-offers-claude-models",
+      "status": "verified",
+      "opened_at": "2026-10-02T13:33:37.143Z"
     }
   ]
 }

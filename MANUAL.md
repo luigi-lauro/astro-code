@@ -155,6 +155,27 @@ and obeys. Optional but recommended; trivial phases can skip it.
 It also surfaces open debt touching the files this phase is about to change, because debt
 is cheap to pay when you are already in the file.
 
+### Challenge mode
+
+A thorough, opt-in alternative to the quick pick-an-answer interview, for ideas that
+deserve a real interrogation before a line of code or a phase number is spent. Four
+entry points open it: `/astro-new-project` and `/astro-adopt` offer it right at the start
+(quick interview vs. challenge me), `/astro-discuss <phase> --challenge` runs it in place
+of the normal discuss step, `/astro-autonomous <phase> --challenge` passes it straight
+through to that discuss step, and the standalone `/astro-challenge "<idea>"` runs it
+against a backlog item before any phase exists at all.
+
+Every round is numbered plain text (never a picker-only format, so it works on hosts
+without one) and is saved to its destination immediately — a `/clear` or a crash loses at
+most one round, never the whole session. A discuss session run this way stamps a second
+marker line, `<!-- astro-challenge: <rounds> rounds -->`, so a rerun resumes rather than
+re-asking what was already settled. On Codex, the round and the round-end checkpoint are
+both asked as plain questions instead of a picker — the method is the same either way.
+
+The method itself — round shape, the checkpoint, the rubber-stamp nudge, how open
+questions are handled — is written once, in `templates/challenge.md`; every entry point
+loads and applies it rather than restating it.
+
 ### Plan
 
 `/astro-plan` first has the `astro-criteria-author` agent pre-register goal-derived,
@@ -698,16 +719,19 @@ astro-code itself captures (ADR-065). A forge server reads the store back read-o
 /astro-adopt              adopt an EXISTING codebase: map it → draft canon → plan next
 /astro-phase <name>       add a phase (claims its number)
 /astro-discuss <phase>    talk through decisions/edge cases → CONTEXT.md (before planning)
+/astro-discuss <phase> --challenge  the thorough interview: numbered rounds, every round saved
 /astro-plan <phase>       parallel research → executable PLAN.md (reads CONTEXT.md)
 /astro-execute <phase>    wave-based parallel execution, then verify
 /astro-verify <phase>     AI gate: confirm the phase goal is met (goal-backward)
 /astro-accept <phase>     human gate: UAT sign-off, then close the phase
 /astro-autonomous <phase> run a whole phase end-to-end (discuss→plan→execute→verify), then stop
+/astro-autonomous <phase> --challenge  same, with a challenge-mode discuss step
 /astro-fast "<prompt>"    fast lane for a long, off-the-cuff prompt: capture → distill → execute
 /astro-fix "<bug>"        fix a bug WITHOUT burning a milestone phase
 /astro-fix-accept <id>    human gate on a fix — confirm the bug is gone, then archive it
 /astro-debt               review the debt register
 /astro-debt-pay <id>      take one debt item on and land it
+/astro-challenge "<idea>" challenge a loose idea before it's a phase — numbered rounds, every round saved
 /astro-backlog             list the open backlog and stop
 /astro-backlog "<idea>"    capture an idea (no phase or milestone spent)
 /astro-backlog review      triage: offer each item promote / link / archive
