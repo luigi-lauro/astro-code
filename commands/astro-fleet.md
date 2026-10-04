@@ -54,5 +54,8 @@ Keyed on the first word of `$ARGUMENTS`:
   and sub-agents. It never sends prompt text, tool payloads or transcripts. If asked what
   is sent, say that, and mention `--hide-names`, which hashes project names and drops the
   repo URL and cwd.
+- It also reports outcomes: a phase verified, rejected or accepted, a fix accepted, and
+  each `git commit`, with its number, id or short sha and its title. `--hide-names`
+  drops the title too.
 - `ac fleet status --json` is the machine-readable form, if you need a field the human
   view omits.
