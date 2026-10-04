@@ -11,9 +11,10 @@
 //   1. Reporting must NEVER slow down or break a session. The hook only maps the event,
 //      appends one JSON line to a local queue and (maybe) spawns a detached flusher —
 //      no network on the hot path, no stdout, exit 0 whatever happens.
-//   2. Activity only. An event is BUILT from a whitelist of fields, never copied from
-//      the hook's stdin, so prompt text, tool inputs/outputs and transcript paths cannot
-//      leak by a new field appearing upstream.
+//   2. Activity and outcomes only. An event is BUILT from a whitelist of fields, never
+//      copied from the hook's stdin, so prompt text, tool inputs/outputs and transcript
+//      paths cannot leak by a new field appearing upstream. An outcome carries a phase,
+//      fix or commit title, and hide_names drops it with the project name.
 //
 // Lives in hooks/ (not lib/) because `ac install` copies hooks/*.mjs into
 // ~/.astro/code/hooks, and the hook must run from there without the source checkout.
@@ -23,7 +24,8 @@ import {
   readFileSync, writeFileSync, appendFileSync, renameSync, mkdirSync, rmSync,
   statSync, existsSync, chmodSync, openSync, closeSync, writeSync,
 } from 'node:fs';
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { spawnSync, spawn } from 'node:child_process';
@@ -206,6 +208,17 @@ export function mapEvent(input, { project, hideNames = false, now = Date.now() }
   if (!type || typeof input.session_id !== 'string' || !input.session_id) return null;
   const ev = { type, session_id: input.session_id, ts: isoSecond(now) };
   const cwd = typeof input.cwd === 'string' && input.cwd ? input.cwd : null;
+  attachProject(ev, project, cwd, hideNames);
+  if (type === 'subagent_start' || type === 'subagent_stop') {
+    if (typeof input.agent_id === 'string') ev.agent_id = input.agent_id;
+    if (typeof input.agent_type === 'string') ev.agent_type = input.agent_type;
+  }
+  return ev;
+}
+
+// `cwd` and `project` by the same rules on every event type: hide_names keeps only the
+// hashed name.
+function attachProject(ev, project, cwd, hideNames) {
   if (project) {
     if (hideNames) {
       ev.project = { name: hiddenName(project, cwd) };
@@ -216,11 +229,91 @@ export function mapEvent(input, { project, hideNames = false, now = Date.now() }
   } else if (cwd && !hideNames) {
     ev.cwd = cwd;
   }
-  if (type === 'subagent_start' || type === 'subagent_stop') {
-    if (typeof input.agent_id === 'string') ev.agent_id = input.agent_id;
-    if (typeof input.agent_type === 'string') ev.agent_type = input.agent_type;
-  }
+}
+
+// --- outcomes ------------------------------------------------------------------------
+// What a session PRODUCED, not only that it was busy: a phase verified, rejected or
+// accepted, a fix accepted (all from `ac`), or a commit (from the PostToolUse hook).
+// Same queue and flusher as activity; a fleet that doesn't know `outcome` skips it.
+
+export const OUTCOME_KINDS = ['phase_verified', 'phase_rejected', 'phase_accepted', 'fix_accepted', 'commit'];
+const FIRST_TRY_KINDS = new Set(['phase_accepted', 'fix_accepted']);
+// The fleet's limits, in BYTES (Go len): one field over them rejects the whole batch.
+const SESSION_ID_MAX = 200;
+const REF_MAX = 100;
+const TITLE_MAX = 300;
+
+// Cut to at most `max` UTF-8 bytes without splitting a character.
+function capBytes(s, max) {
+  const b = Buffer.from(s, 'utf8');
+  if (b.length <= max) return s;
+  return b.subarray(0, max).toString('utf8').replace(/�+$/, '');
+}
+
+/**
+ * The session an `ac` outcome belongs to: the Claude Code session running `ac`, when
+ * the environment says so, else a stable per-project id. Under hide_names the fallback
+ * uses the hashed name, so the repo URL can't leak through the session id.
+ */
+export function outcomeSessionId(project, cwd, { hideNames = false, env = process.env } = {}) {
+  const sid = env.CLAUDE_CODE_SESSION_ID;
+  if (typeof sid === 'string' && sid) return capBytes(sid, SESSION_ID_MAX);
+  const key = hideNames ? hiddenName(project || {}, cwd) : (project?.repo_url || basename(cwd || '') || project?.name || 'unknown');
+  return capBytes(`ac:${key}`, SESSION_ID_MAX);
+}
+
+/** One outcome → one wire event, built field by field like mapEvent. Null if malformed. */
+export function mapOutcome(outcome, { sessionId, cwd = null, project, hideNames = false, now = Date.now() } = {}) {
+  if (!outcome || !OUTCOME_KINDS.includes(outcome.kind)) return null;
+  if (typeof sessionId !== 'string' || !sessionId) return null;
+  const ev = { type: 'outcome', session_id: sessionId, ts: isoSecond(now) };
+  attachProject(ev, project, cwd || null, hideNames);
+  const o = { kind: outcome.kind };
+  if (outcome.ref != null && outcome.ref !== '') o.ref = capBytes(String(outcome.ref), REF_MAX);
+  if (!hideNames && typeof outcome.title === 'string' && outcome.title) o.title = capBytes(outcome.title, TITLE_MAX);
+  if (outcome.by === 'human' || outcome.by === 'agent') o.by = outcome.by;
+  if (FIRST_TRY_KINDS.has(outcome.kind) && typeof outcome.first_try === 'boolean') o.first_try = outcome.first_try;
+  ev.outcome = o;
   return ev;
+}
+
+// `git commit` as a command of its own: at the start, or after a shell separator, with
+// optional VAR=… prefixes and git's global options (`-C dir`, `-c k=v`, `--no-pager`).
+// Not `git commit-tree`, and not "git commit" inside an echo'd string.
+const GIT_COMMIT_RE = /(?:^|[;&|(\n]|\$\()\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git(?:\s+(?:-[Cc]\s+\S+|--?[A-Za-z][\w-]*(?:=\S+)?))*\s+commit(?![\w-])/;
+
+export function isGitCommit(command) {
+  return typeof command === 'string' && GIT_COMMIT_RE.test(command);
+}
+
+// HEAD's short sha and subject, in one cheap git call. Null when it can't be had.
+export function headCommit(cwd) {
+  if (!cwd) return null;
+  try {
+    const r = spawnSync('git', ['-C', cwd, 'log', '-1', '--format=%h%x1f%s'], {
+      encoding: 'utf8', timeout: 500, windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    if (r.status !== 0 || !r.stdout) return null;
+    const [sha, subject] = r.stdout.replace(/\n$/, '').split('\x1f');
+    return sha ? { sha, subject: subject || '' } : null;
+  } catch { return null; }
+}
+
+/**
+ * The commit outcome a hook payload carries, or null. Only a PostToolUse of Bash (which
+ * Claude Code fires on success; failures go to PostToolUseFailure) whose command runs
+ * `git commit`. The command itself is only matched, never sent.
+ */
+export function commitOutcome(input, { head = headCommit } = {}) {
+  if (!input || input.hook_event_name !== 'PostToolUse' || input.tool_name !== 'Bash') return null;
+  if (!isGitCommit(input.tool_input?.command)) return null;
+  if (input.tool_response && typeof input.tool_response === 'object' && input.tool_response.interrupted) return null;
+  const h = head(typeof input.cwd === 'string' ? input.cwd : '');
+  const o = { kind: 'commit', by: 'agent' };
+  if (h) { o.ref = h.sha; if (h.subject) o.title = h.subject; }
+  return o;
 }
 
 // --- the queue lock ------------------------------------------------------------------
@@ -314,11 +407,12 @@ function logLine(p, msg) {
 // --- the hot path ------------------------------------------------------------------------
 
 /**
- * Turn one hook payload into (at most) one queued line. Returns what happened, for
+ * Turn one hook payload into (at most) one queued line — plus an `outcome` line when
+ * it is a successful Bash `git commit`. Returns what happened, for
  * tests; the hook script ignores it. Never throws on bad input — but the script wraps
  * it anyway, because "never break the session" is not a property to trust one layer for.
  */
-export function enqueueHookEvent(input, { dir = fleetDir(), now = Date.now(), resolve = resolveProject } = {}) {
+export function enqueueHookEvent(input, { dir = fleetDir(), now = Date.now(), resolve = resolveProject, head = headCommit } = {}) {
   const cfg = loadConfig(dir);
   if (!cfg) return { queued: false, why: 'not-connected' };
   if (cfg.paused) return { queued: false, why: 'paused' };
@@ -340,6 +434,10 @@ export function enqueueHookEvent(input, { dir = fleetDir(), now = Date.now(), re
 
   const ev = mapEvent(input, { project, hideNames: !!cfg.hide_names, now });
   if (!ev) return { queued: false, why: 'ignored' };
+  // A commit is an outcome on top of the tool tick, never coalesced with it: git is only
+  // forked for a Bash call that ran `git commit`, so the common tool event stays cheap.
+  const commit = commitOutcome(input, { head });
+  const outcomeEv = commit && mapOutcome(commit, { sessionId: sid, cwd: cwd || null, project, hideNames: !!cfg.hide_names, now });
 
   const res = withQueueLock(p, () => {
     const s = loadState(dir);
@@ -355,7 +453,9 @@ export function enqueueHookEvent(input, { dir = fleetDir(), now = Date.now(), re
       const last = s.last_tool[sid] || 0;
       if (now - last < TOOL_COALESCE_MS) {
         if (changed) saveState(p, s);
-        return { queued: false, why: 'coalesced' };
+        if (!outcomeEv) return { queued: false, why: 'coalesced' };
+        appendEvents(p, s, [outcomeEv], now);
+        return { queued: true, event: outcomeEv, state: s };
       }
       s.last_tool[sid] = now;
       changed = true;
@@ -368,22 +468,69 @@ export function enqueueHookEvent(input, { dir = fleetDir(), now = Date.now(), re
     for (const [k, v] of Object.entries(s.last_tool)) if (now - v > EVENT_TTL_MS) { delete s.last_tool[k]; changed = true; }
     if (changed) saveState(p, s);
 
-    appendFileSync(p.queue, JSON.stringify(ev) + '\n', { mode: 0o600 });
-    // Cheap cap check: only read the queue back when its SIZE says it might be over
-    // (no event is under ~50 bytes). Normally the flusher keeps the queue near empty;
-    // this matters while the fleet is unreachable or the token was refused.
-    const max = s.auth_failed ? QUEUE_MAX_AUTH_FAILED : QUEUE_MAX;
-    try {
-      if (statSync(p.queue).size > max * 50) {
-        const q = readQueue(p.queue);
-        const t = trimQueue(q, { now, max });
-        if (t.length !== q.length) writeQueue(p.queue, t);
-      }
-    } catch { /* cap is re-applied by the flusher */ }
+    appendEvents(p, s, outcomeEv ? [ev, outcomeEv] : [ev], now);
     return { queued: true, event: ev, state: s };
   });
   if (!res) return { queued: false, why: 'lock-busy' };
   return res;
+}
+
+// Append under the queue lock (the caller holds it), then apply the cap.
+function appendEvents(p, s, events, now) {
+  appendFileSync(p.queue, events.map((e) => JSON.stringify(e) + '\n').join(''), { mode: 0o600 });
+  // Cheap cap check: only read the queue back when its SIZE says it might be over
+  // (no event is under ~50 bytes). Normally the flusher keeps the queue near empty;
+  // this matters while the fleet is unreachable or the token was refused.
+  const max = s.auth_failed ? QUEUE_MAX_AUTH_FAILED : QUEUE_MAX;
+  try {
+    if (statSync(p.queue).size > max * 50) {
+      const q = readQueue(p.queue);
+      const t = trimQueue(q, { now, max });
+      if (t.length !== q.length) writeQueue(p.queue, t);
+    }
+  } catch { /* cap is re-applied by the flusher */ }
+}
+
+/**
+ * Queue one outcome from `ac` (not from a hook). Same gates as the hook: not connected
+ * or paused → nothing. `cwd` is the project root; identity resolves by resolveProject.
+ */
+export function enqueueOutcome(outcome, { dir = fleetDir(), cwd = '', now = Date.now(), resolve = resolveProject, env = process.env } = {}) {
+  const cfg = loadConfig(dir);
+  if (!cfg) return { queued: false, why: 'not-connected' };
+  if (cfg.paused) return { queued: false, why: 'paused' };
+  const hideNames = !!cfg.hide_names;
+  const project = resolve(cwd);
+  const ev = mapOutcome(outcome, {
+    sessionId: outcomeSessionId(project, cwd, { hideNames, env }), cwd: cwd || null, project, hideNames, now,
+  });
+  if (!ev) return { queued: false, why: 'ignored' };
+  const p = fleetPaths(dir);
+  const res = withQueueLock(p, () => {
+    const s = loadState(dir);
+    appendEvents(p, s, [ev], now);
+    return { queued: true, event: ev, state: s };
+  });
+  return res || { queued: false, why: 'lock-busy' };
+}
+
+/**
+ * `ac`'s entry point: queue the outcome and start a flusher, exactly as the hook does.
+ * Never throws and never waits on the network — a failure is logged to fleet.log and
+ * the command carries on as if the fleet didn't exist.
+ */
+export function reportOutcome(outcome, opts = {}) {
+  const dir = opts.dir || fleetDir();
+  try {
+    const r = enqueueOutcome(outcome, { ...opts, dir });
+    if (r.queued && shouldSpawnFlusher(dir, { state: r.state })) {
+      spawnFlusher(join(dirname(fileURLToPath(import.meta.url)), 'astro-fleet-flush.mjs'), dir);
+    }
+    return r;
+  } catch (e) {
+    if (existsSync(dir)) logLine(fleetPaths(dir), `outcome not reported: ${String(e?.message || e).slice(0, 200)}`);
+    return { queued: false, why: 'error' };
+  }
 }
 
 // Should the hook start a flusher now? Not while one runs, not inside a back-off window
@@ -494,6 +641,9 @@ export function chunkEvents(events, color) {
 async function sendWithSplit(cfg, events, post) {
   const r = await post(cfg, events);
   if (r.status >= 200 && r.status < 300) return { done: events.length, ok: true };
+  // A fleet older than `outcome` answers a batch of nothing else with 400 "no recognised
+  // events". That is the expected skip, not an error worth showing in `ac fleet status`.
+  if (r.status === 400 && events.every((e) => e && e.type === 'outcome')) return { done: events.length };
   if (r.status === 400) return { done: events.length, dropped: true, r };
   if (r.status === 413) {
     if (events.length === 1) return { done: 1, dropped: true, r };

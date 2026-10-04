@@ -689,6 +689,11 @@ Inside Claude Code, `/astro-fleet` runs the same verbs. Prefer the terminal for
   transcript paths. That means session start and end, prompt, tool (at most one per 5 s),
   waiting, stop and sub-agent start and stop, each with the project name, repo URL and
   cwd. With `--hide-names`, the project is sent as `p-<hash>` with no repo URL or cwd.
+- **Outcomes, not only activity:** an `outcome` event goes out when `ac phase verify`,
+  `ac phase reject`, `ac phase accept` or `ac fix accept` succeeds, and when a session's
+  Bash call runs `git commit`. It carries the kind, the phase number, fix id or short
+  sha, the title, whether a human or an agent signed it, and for an accept whether it
+  was a first try. `--hide-names` drops the title. A refused command sends nothing.
 - **It never slows a session:** the hook appends to a local queue and exits.
   - A detached flusher sends batches and backs off on errors.
   - It stops on a refused token until you reconnect.

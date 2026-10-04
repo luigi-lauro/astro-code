@@ -14,9 +14,13 @@ import { createServer } from 'node:http';
 import { spawnSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { git } from '../lib/git.mjs';
+import { initPlanning } from '../lib/planning.mjs';
+import { addPhase, findPhase } from '../lib/roadmap.mjs';
+import { addFix, setFixStatus } from '../lib/fixes.mjs';
 import {
   mapEvent, normalizeRemote, resolveProject, hiddenName, enqueueHookEvent, trimQueue,
   readQueue, flush, fleetPaths, saveConfig, loadState, updateState, chunkEvents,
+  mapOutcome, enqueueOutcome, outcomeSessionId, isGitCommit, commitOutcome, headCommit, OUTCOME_KINDS,
   QUEUE_MAX, QUEUE_MAX_AUTH_FAILED, EVENT_TTL_MS, HOOK_MARKER,
 } from '../hooks/_astro-fleet.mjs';
 import {
@@ -331,6 +335,24 @@ test('400 drops the malformed batch and logs it', async () => {
   assert.ok(!readFileSync(fleetPaths(dir).log, 'utf8').includes('tok-secret'));
 });
 
+test('a fleet that predates outcomes: an outcome-only batch is skipped silently, a mixed one is accepted', async () => {
+  // first: what an old fleet says to a batch of only unknown types; then a plain 200
+  const f = await fakeFleet([{ status: 400, body: { error: 'no recognised events' } }, { status: 200 }]);
+  const dir = tmp();
+  connected(dir, f.url);
+  const outcome = { type: 'outcome', session_id: 's1', ts: new Date().toISOString(), outcome: { kind: 'commit' } };
+  fill(dir, [outcome]);
+  await flush({ dir });
+  assert.equal(readQueue(fleetPaths(dir).queue).length, 0);
+  assert.equal(loadState(dir).last_error, undefined, 'no error shown for the expected skip');
+  assert.ok(!existsSync(fleetPaths(dir).log));
+  fill(dir, [ev(1), outcome]);
+  await flush({ dir });
+  await f.close();
+  assert.equal(readQueue(fleetPaths(dir).queue).length, 0);
+  assert.deepEqual(f.calls.at(-1).body.events.map((e) => e.type), ['prompt', 'outcome']);
+});
+
 test('the flusher drops expired events instead of sending them', async () => {
   const f = await fakeFleet();
   const dir = tmp();
@@ -567,4 +589,179 @@ test('ac fleet CLI: connect → status → pause → disconnect against a fake f
   assert.equal(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'), USER_SETTINGS);
   assert.ok(!existsSync(join(home, '.astro', 'fleet.json')));
   rmSync(home, { recursive: true, force: true });
+});
+
+// ── outcomes ─────────────────────────────────────────────────────────────────────
+
+const T0 = Date.parse('2026-10-01T12:00:00.789Z');
+
+test('outcome: every kind maps to one "outcome" event with project, cwd and only whitelisted fields', () => {
+  for (const kind of OUTCOME_KINDS) {
+    const e = mapOutcome({ kind, ref: 7, title: 'Checkout', by: 'human', first_try: true, extra: 'SECRET' },
+      { sessionId: 'S1', cwd: '/Users/alex/dev/shop', project: PROJECT, now: T0 });
+    assert.deepEqual(Object.keys(e), ['type', 'session_id', 'ts', 'cwd', 'project', 'outcome'], kind);
+    assert.equal(e.type, 'outcome');
+    assert.equal(e.ts, '2026-10-01T12:00:00Z');
+    assert.deepEqual(e.project, PROJECT);
+    const want = { kind, ref: '7', title: 'Checkout', by: 'human' };
+    if (kind === 'phase_accepted' || kind === 'fix_accepted') want.first_try = true;
+    assert.deepEqual(e.outcome, want, kind);
+  }
+  // malformed: unknown kind, no session id, a `by` outside the two values
+  assert.equal(mapOutcome({ kind: 'deploy' }, { sessionId: 'S' }), null);
+  assert.equal(mapOutcome({ kind: 'commit' }, { sessionId: '' }), null);
+  assert.deepEqual(mapOutcome({ kind: 'commit', by: 'robot' }, { sessionId: 'S' }).outcome, { kind: 'commit' });
+  // the fleet rejects a WHOLE batch over its byte limits (ref 100, title 300), so cap
+  // on bytes, never mid-character
+  const long = mapOutcome({ kind: 'fix_accepted', ref: 'r'.repeat(150), title: `a${'€'.repeat(150)}` }, { sessionId: 'S' });
+  assert.equal(Buffer.byteLength(long.outcome.ref), 100);
+  assert.equal(Buffer.byteLength(long.outcome.title), 298);
+  assert.ok(!long.outcome.title.includes('�'));
+});
+
+test('outcome: hide_names strips the title, cwd and repo_url, and the fallback session id stays opaque', () => {
+  const e = mapOutcome({ kind: 'phase_accepted', ref: '3', title: 'Secret Project X', by: 'agent', first_try: false },
+    { sessionId: 'S', cwd: '/Users/alex/dev/shop', project: PROJECT, hideNames: true });
+  assert.deepEqual(e.project, { name: hiddenName(PROJECT, '/Users/alex/dev/shop') });
+  assert.ok(!('cwd' in e));
+  assert.deepEqual(e.outcome, { kind: 'phase_accepted', ref: '3', by: 'agent', first_try: false });
+  assert.ok(!JSON.stringify(e).includes('Secret'));
+
+  assert.equal(outcomeSessionId(PROJECT, '/w/shop', { env: { CLAUDE_CODE_SESSION_ID: 'cc-123' } }), 'cc-123');
+  assert.equal(outcomeSessionId(PROJECT, '/w/shop', { env: {} }), 'ac:https://github.com/acme/shop');
+  assert.equal(outcomeSessionId({ name: 'notes' }, '/w/notes', { env: {} }), 'ac:notes');
+  assert.match(outcomeSessionId(PROJECT, '/w/shop', { hideNames: true, env: {} }), /^ac:p-[0-9a-f]{8}$/);
+});
+
+test('outcome: not connected and paused queue nothing; connected queues through the same queue', () => {
+  const dir = tmp();
+  const resolve = () => PROJECT;
+  const o = { kind: 'phase_verified', ref: 1, title: 'x', by: 'agent' };
+  assert.equal(enqueueOutcome(o, { dir, cwd: '/w', resolve }).why, 'not-connected');
+  connected(dir, DOWN, { paused: true });
+  assert.equal(enqueueOutcome(o, { dir, cwd: '/w', resolve }).why, 'paused');
+  assert.equal(readQueue(fleetPaths(dir).queue).length, 0);
+  connected(dir, DOWN);
+  assert.equal(enqueueOutcome(o, { dir, cwd: '/w', resolve, env: { CLAUDE_CODE_SESSION_ID: 'CC' } }).queued, true);
+  const q = readQueue(fleetPaths(dir).queue);
+  assert.equal(q.length, 1);
+  assert.equal(q[0].session_id, 'CC');
+  assert.equal(q[0].cwd, '/w');
+});
+
+test('git commit detection: a command that runs `git commit`, nothing that merely mentions it', () => {
+  for (const c of ['git commit -m "x"', 'git add -A && git commit -m x', 'cd sub; git commit --amend --no-edit',
+    'git -C /repo commit -m x', 'GIT_AUTHOR_NAME=a git commit -m x', 'git --no-pager -c user.name=a commit -m x',
+    'git add . &&\ngit commit -F msg']) assert.ok(isGitCommit(c), c);
+  for (const c of ['git status', 'echo "git commit"', 'git commit-tree HEAD^{tree}', 'git log --grep commit',
+    'mygit commit', 'gh pr create', '', null]) assert.ok(!isGitCommit(c), String(c));
+});
+
+test('PostToolUse of a git commit queues the tool tick plus one outcome; a coalesced tick still keeps the commit', () => {
+  const dir = tmp();
+  connected(dir, DOWN);
+  const resolve = () => PROJECT;
+  let n = 0;
+  const head = () => ({ sha: `abc${++n}`, subject: `feat: thing ${n}` });
+  const fire = (dt, command, extra = {}) => enqueueHookEvent({
+    hook_event_name: 'PostToolUse', session_id: 'S', cwd: '/w', tool_name: 'Bash',
+    tool_input: { command }, tool_response: { stdout: 'SECRET OUTPUT' }, ...extra,
+  }, { dir, resolve, head, now: T0 + dt });
+  fire(0, 'git commit -m "one"');
+  fire(1000, 'git commit -m "two"'); // tool tick coalesced, commit kept
+  fire(2000, 'git status');          // coalesced, no commit → nothing
+  fire(6000, 'git commit -m x', { tool_response: { interrupted: true } }); // interrupted → tool only
+  enqueueHookEvent({ hook_event_name: 'PreToolUse', session_id: 'S', cwd: '/w', tool_name: 'Bash', tool_input: { command: 'git commit' } },
+    { dir, resolve, head, now: T0 + 20_000 }); // PreToolUse → tool only
+  const q = readQueue(fleetPaths(dir).queue);
+  assert.deepEqual(q.map((e) => e.type), ['tool', 'outcome', 'outcome', 'tool', 'tool']);
+  assert.deepEqual(q[1].outcome, { kind: 'commit', ref: 'abc1', title: 'feat: thing 1', by: 'agent' });
+  assert.deepEqual(q[2].outcome, { kind: 'commit', ref: 'abc2', title: 'feat: thing 2', by: 'agent' });
+  assert.equal(q[1].session_id, 'S');
+  assert.deepEqual(q[1].project, PROJECT);
+  assert.ok(!JSON.stringify(q).includes('SECRET') && !JSON.stringify(q).includes('-m'));
+
+  // hide_names drops the subject; no sha available → no ref
+  const d2 = tmp();
+  connected(d2, DOWN, { hide_names: true });
+  enqueueHookEvent({ hook_event_name: 'PostToolUse', session_id: 'S', cwd: '/w', tool_name: 'Bash', tool_input: { command: 'git commit -m x' } },
+    { dir: d2, resolve, head: () => null, now: T0 });
+  const [, oc] = readQueue(fleetPaths(d2).queue);
+  assert.deepEqual(oc.outcome, { kind: 'commit', by: 'agent' });
+});
+
+test('headCommit reads the short sha and subject of a real repo, null outside one', () => {
+  const repo = tmp();
+  git(['init', '-q'], { cwd: repo });
+  git(['-c', 'user.name=a', '-c', 'user.email=a@b', 'commit', '-q', '--allow-empty', '-m', 'first commit'], { cwd: repo });
+  const h = headCommit(repo);
+  assert.match(h.sha, /^[0-9a-f]{7,}$/);
+  assert.equal(h.subject, 'first commit');
+  assert.equal(headCommit(tmp()), null);
+  assert.deepEqual(commitOutcome({ hook_event_name: 'PostToolUse', tool_name: 'Bash', cwd: repo, tool_input: { command: 'git commit -m x' } }),
+    { kind: 'commit', by: 'agent', ref: h.sha, title: 'first commit' });
+});
+
+// `ac` itself: an outcome only after the state change succeeded. ASTRO_FLEET_DIR points
+// at a throwaway fleet dir connected to a down server, so the queue keeps what ac sent.
+async function acProject() {
+  const root = tmp('ac-fleet-proj-');
+  initPlanning(root, { name: 'shop' });
+  await addPhase(root, { number: 1, name: 'Checkout', milestone: 1 });
+  await addPhase(root, { number: 2, name: 'Refunds', milestone: 1 });
+  const dir = tmp();
+  const env = { ...process.env, ASTRO_FLEET_DIR: dir, CLAUDE_CODE_SESSION_ID: 'CC-1' };
+  const ac = (...args) => spawnSync(process.execPath, [AC, ...args], { cwd: root, env, encoding: 'utf8' });
+  return { root, dir, ac, outcomes: () => readQueue(fleetPaths(dir).queue).filter((e) => e.type === 'outcome') };
+}
+
+test('ac phase verify/reject/accept report outcomes; a refused accept reports nothing', async () => {
+  const { root, dir, ac, outcomes } = await acProject();
+  connected(dir, DOWN);
+
+  const refused = ac('phase', 'accept', '1', '--by', 'alex');
+  assert.notEqual(refused.status, 0, 'accept of an unverified phase is refused');
+  assert.equal(outcomes().length, 0, 'a refused accept emits nothing');
+
+  for (const args of [['verify', '1'], ['reject', '1', '--reason', 'broken', '--agent', 'bot'], ['verify', '1'],
+    ['accept', '1', '--by', 'alex'], ['verify', '2'], ['accept', '2', '--agent', 'bot']]) {
+    const r = ac('phase', ...args);
+    assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+  }
+
+  const q = outcomes();
+  assert.deepEqual(q.map((e) => e.outcome), [
+    { kind: 'phase_verified', ref: '1', title: 'Checkout', by: 'agent' },
+    { kind: 'phase_rejected', ref: '1', title: 'Checkout', by: 'agent' },
+    { kind: 'phase_verified', ref: '1', title: 'Checkout', by: 'agent' },
+    { kind: 'phase_accepted', ref: '1', title: 'Checkout', by: 'human', first_try: false },
+    { kind: 'phase_verified', ref: '2', title: 'Refunds', by: 'agent' },
+    { kind: 'phase_accepted', ref: '2', title: 'Refunds', by: 'agent', first_try: true },
+  ]);
+  assert.ok(q.every((e) => e.session_id === 'CC-1' && e.cwd === root && e.project.name));
+  assert.equal(findPhase(root, '1').status, 'complete');
+});
+
+test('ac fix accept reports fix_accepted with first_try; paused and not-connected report nothing', async () => {
+  const { root, dir, ac, outcomes } = await acProject();
+  const a = await addFix(root, { title: 'Totals off by one' });
+  const b = await addFix(root, { title: 'Refund rounding' });
+  await setFixStatus(root, b.id, 'rejected');
+  await setFixStatus(root, b.id, 'verified');
+
+  // not connected, then paused: the command succeeds, nothing is queued
+  assert.equal(ac('phase', 'verify', '1').status, 0);
+  connected(dir, DOWN, { paused: true });
+  assert.equal(ac('phase', 'verify', '2').status, 0);
+  assert.equal(outcomes().length, 0);
+
+  connected(dir, DOWN, { hide_names: true });
+  assert.equal(ac('fix', 'accept', a.id).status, 0);
+  assert.equal(ac('fix', 'accept', b.id, '--agent', 'bot').status, 0);
+  const q = outcomes();
+  assert.deepEqual(q.map((e) => e.outcome), [
+    { kind: 'fix_accepted', ref: a.id, by: 'human', first_try: true },
+    { kind: 'fix_accepted', ref: b.id, by: 'agent', first_try: false },
+  ]);
+  assert.ok(!JSON.stringify(q).includes('Totals') && q.every((e) => !('cwd' in e) && /^p-/.test(e.project.name)));
 });

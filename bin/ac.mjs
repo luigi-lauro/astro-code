@@ -89,6 +89,7 @@ import {
   connect as fleetConnect, disconnect as fleetDisconnect, setPaused as fleetSetPaused,
   setColor as fleetSetColor, status as fleetStatus,
 } from '../lib/fleet.mjs';
+import { reportOutcome } from '../hooks/_astro-fleet.mjs';
 import { configTargets } from '../lib/hosts/claude.mjs';
 
 function parseArgs(args) {
@@ -507,6 +508,15 @@ function verbHelp(verb) {
 }
 const wantsHelp = tail.includes('--help') || tail.includes('-h') || pos[0] === 'help';
 
+// Tell a connected Astro Fleet what a session PRODUCED (hooks/_astro-fleet.mjs). Called
+// only after the state change succeeded; not connected or paused is a silent no-op, and
+// nothing here can fail or slow the command. Under `node --test` it reports only when
+// the test points ASTRO_FLEET_DIR somewhere, so the suite never reaches a real fleet.
+function reportFleetOutcome(r, outcome) {
+  if (process.env.NODE_TEST_CONTEXT && !process.env.ASTRO_FLEET_DIR) return;
+  try { reportOutcome(outcome, { cwd: r }); } catch { /* never surface */ }
+}
+
 async function main() {
   if (cmd !== undefined && wantsHelp) {
     process.stdout.write(verbHelp(cmd));
@@ -581,6 +591,10 @@ async function main() {
           agent: typeof flags.agent === 'string' ? flags.agent : '',
         });
         markFixComplete({ root: r, id: fix.id });
+        reportFleetOutcome(r, {
+          kind: 'fix_accepted', ref: fix.id, title: fix.title, by: done.accepted_kind,
+          first_try: fix.status !== 'rejected' && !fix.rejections,
+        });
         const who = done.accepted_kind === 'agent' ? `agent ${done.accepted_by}` : done.accepted_by;
         console.log(`✓ accepted ${done.id} by ${who}${done.archived ? ' → archived' : ''}`);
         // Draining the debt register is a SIDE EFFECT of the gate that already exists.
@@ -2091,6 +2105,8 @@ async function main() {
       } else if (sub === 'verify') {
         if (!ph) die('usage: ac phase verify <phase>');
         await setPhaseStatus(r, ph.slug, 'verified');
+        // `verified` is the AI verifier's verdict by definition (REQ-006), so by: agent.
+        reportFleetOutcome(r, { kind: 'phase_verified', ref: ph.number, title: ph.name, by: 'agent' });
         console.log(`✓ phase ${ph.number} "${ph.name}" → verified (run /astro-accept for UAT to close)`);
       } else if (sub === 'accept') {
         if (!ph) die('usage: ac phase accept <phase> [--by name | --agent name] [--force]');
@@ -2126,6 +2142,10 @@ async function main() {
           accepted_at: new Date().toISOString(),
         });
         await updateState(r, (s) => ({ ...s, active_phase: s.active_phase === ph.slug ? null : s.active_phase }));
+        reportFleetOutcome(r, {
+          kind: 'phase_accepted', ref: ph.number, title: ph.name, by: kind,
+          first_try: !(ph.rejections && ph.rejections.length) && ph.status !== 'rejected',
+        });
         console.log(
           `✓ phase ${ph.number} "${ph.name}" accepted by ${by}${agentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''} → complete`,
         );
@@ -2157,6 +2177,7 @@ async function main() {
         const isAgentSigner = flags.agent !== undefined;
         const agentSigner = typeof flags.agent === 'string' ? flags.agent : '';
         await rejectPhase(r, ph.slug, { reason, agent: isAgentSigner ? agentSigner : undefined });
+        reportFleetOutcome(r, { kind: 'phase_rejected', ref: ph.number, title: ph.name, by: isAgentSigner ? 'agent' : 'human' });
         await updateState(r, (s) => ({
           ...s,
           blockers: [...(s.blockers || []), {
