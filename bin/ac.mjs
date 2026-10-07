@@ -32,6 +32,24 @@ function reportAgentTools(res) {
     }
   }
 }
+// P9 (phase 35) — a host's `registerHooks` returns either the old boolean (Claude/Codex,
+// unchanged) or a report object (a copy-mode host like Cursor): which branch it took, so
+// `ac install`/`ac update` can say so instead of a blanket "update banner+statusline".
+function hooksPhrase(hooks) {
+  if (hooks && typeof hooks === 'object') {
+    if (hooks.branch === 'native') return `hooks: native (${(hooks.events || []).join(', ')}) + statusline`;
+    if (hooks.branch === 'import') return 'hooks: via Claude Code import — Cursor runs the Claude Code hooks';
+    return `⚠ hooks not wired — ${hooks.reason}`;
+  }
+  return hooks ? 'update banner+statusline' : '';
+}
+// Every Claude hook event the native branch couldn't map (P7's `mapHookEvents`) gets its
+// own line — a future Claude-only hook can never silently go unaccounted for on Cursor.
+function reportHookSkips(t) {
+  for (const ev of (t.hooks && typeof t.hooks === 'object' && t.hooks.skipped) || []) {
+    console.log(`⚠ ${t.hostLabel || t.label}: no equivalent for Claude hook ${ev} — skipped`);
+  }
+}
 function noteLocalModel() {
   const s = localModelSession();
   if (s.local) console.error(`• local model (${s.why}) — every agent runs on the session's model, no reasoning effort`);
@@ -2805,9 +2823,10 @@ async function main() {
           console.log(`✓ self-hosted → ${t.dir}  [${t.label}]  (source files in place — not symlinked)`);
           continue;
         }
-        const hk = t.hooks ? ', update banner+statusline' : '';
+        const hk = hooksPhrase(t.hooks);
         const who = t.hostLabel ? `${t.hostLabel} ` : '';
-        console.log(`✓ ${who}→ ${t.dir}  [${t.label}]  (${t.commands} cmds, ${t.agents} agents${hk})`);
+        console.log(`✓ ${who}→ ${t.dir}  [${t.label}]  (${t.commands} cmds, ${t.agents} agents${hk ? `, ${hk}` : ''})`);
+        reportHookSkips(t);
       }
       reportAgentTools(res);
       console.log('  after pulling updates, refresh the global CLI: npm install -g .');
@@ -2925,6 +2944,15 @@ async function main() {
       // re-runs the worker when the cache is missing).
       rmSync(join(ASTRO_HOME, 'update-check.json'), { force: true });
       console.log(`✓ installed → ${res.home} (${res.commands} cmds, ${res.agents} agents, ${res.workflows} workflows, ${res.hooks} hooks) across ${res.targets.length} config dir(s)`);
+      // Boolean hook reports (Claude/Codex) stay folded into the summary line above; a
+      // report object (a copy-mode host like Cursor, P9) gets its own line per target —
+      // which branch it took and any Claude hook event it couldn't map.
+      for (const t of res.targets) {
+        if (t.hooks && typeof t.hooks === 'object') {
+          console.log(`  ${t.hostLabel || t.label} → ${hooksPhrase(t.hooks)}`);
+          reportHookSkips(t);
+        }
+      }
       reportAgentTools(res);
       let version = '?';
       try { version = (JSON.parse(readFileSync(join(clone, 'package.json'), 'utf8')) || {}).version || '?'; } catch { /* ignore */ }
