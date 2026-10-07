@@ -79,7 +79,9 @@ Then stop: skip the Steps and Apply below.
 
 ## Steps
 
-1. Show the current settings: `ac models` (prints both the tier and reasoning maps).
+1. Show the current settings: `ac models` (prints both the tier and reasoning maps, and
+   `sources`: whether each role's value comes from this `project`, the `user` default in
+   `~/.astro/config.json`, or — a role in neither — the built-in default).
 2. Ask the user how to set them with **AskUserQuestion** — start with a profile pick.
    The tier ladder is **opus → sonnet** for EVERY role. haiku is excluded everywhere,
    integrator included: ADR-035 reverted the ADR-027 carve-out after a haiku integrator
@@ -113,6 +115,17 @@ For **Custom**, set each chosen role individually:
 - a reasoning depth → `ac config set reasoning.<role> <low|medium|high|xhigh|max>`
 - `inherit` → `ac config unset models.<role>` / `ac config unset reasoning.<role>`
   (the workflow then uses the host default)
+
+**For this project, or for every project?** Settings above land in this project's
+`.astrocode/config.json`. A user who runs several projects under one policy can set the
+profile once as their own default instead: `ac models <profile> --user` writes
+`models` + `reasoning` to `~/.astro/config.json`. Per role, the project's value wins, then
+the user default, then the built-in one. A new project leaves the roles the user has a
+default for unset, so they follow it; an existing project has every role set, so after
+`--user` it keeps its own values until they are removed (`ac config unset models.<role>`
+/ `ac config unset reasoning.<role>`) — offer that, never do it unasked, since
+`.astrocode/config.json` is committed and may be a team's. Ask only when the user mentions other projects
+or a personal policy; otherwise apply to the project.
 
 Reasoning by profile: **max** spends `xhigh` on planner and verifier, **balanced** uses
 `high` on those two and `medium` elsewhere, **fast** drops to `low` everywhere EXCEPT

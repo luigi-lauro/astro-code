@@ -44,7 +44,7 @@ test('ASTRO_HOOKS names exactly the events claude.registerHooks actually writes,
     claude.registerHooks(claudeDir, home);
 
     const settings = JSON.parse(readFileSync(join(claudeDir, 'settings.json'), 'utf8'));
-    const scripts = ['astro-update.mjs', 'astro-precompact.mjs', 'astro-session-state.mjs'];
+    const scripts = ['astro-update.mjs', 'astro-principles.mjs', 'astro-precompact.mjs', 'astro-session-state.mjs'];
     const writtenEvents = Object.keys(settings.hooks || {}).filter((evt) =>
       (settings.hooks[evt] || []).some((e) =>
         (e.hooks || []).some((h) => typeof h.command === 'string' && scripts.some((s) => h.command.includes(s)))));

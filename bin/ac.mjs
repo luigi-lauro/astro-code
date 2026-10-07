@@ -14,9 +14,11 @@ import { profileModels, PROFILE_NAMES, localModelSession, sessionModels } from '
 // A local-model session (lib/models.mjs) cannot serve the configured tiers: every role runs
 // on the session's model with no reasoning effort. Applied where the commands READ models
 // and reasoning; the stored config is never changed, so leaving the local model restores it.
+// A role the project leaves unset falls back to the user's default in ~/.astro/config.json
+// (#110), then to the built-in default.
 function effectiveConfig(cfg) {
   const s = localModelSession();
-  return s.local ? { ...cfg, models: sessionModels(), reasoning: {} } : cfg;
+  return s.local ? { ...cfg, models: sessionModels(), reasoning: {} } : withUserRoleDefaults(cfg).cfg;
 }
 // #93 — one line for what `agent_tools` in ~/.astro/config.json added, warnings on stderr.
 function reportAgentTools(res) {
@@ -72,7 +74,7 @@ import {
   setBacklogNote,
 } from '../lib/backlog.mjs';
 import { runFixturesCheck } from '../lib/fixtures.mjs';
-import { loadConfig, updateConfig } from '../lib/config.mjs';
+import { loadConfig, updateConfig, withUserRoleDefaults, setUserRoleDefaults } from '../lib/config.mjs';
 import {
   canonText, loadCanon, addDecision, canonPull, canonPush, canonDedupe,
   supersedeDecision, retireDecision, amendDecision, canonCheck, canonStats, canonDrift,
@@ -219,7 +221,7 @@ const ALLOWED_FLAGS = {
   'principles merge': ['into'],
   // Phase 25 (P1) — retrieval never runs `principlesSync` (hot path of every agent
   // task and session start), so its flags are read-only knobs only.
-  'principles brief': ['stage', 'work', 'files', 'rules-only', 'by', 'json'],
+  'principles brief': ['stage', 'work', 'files', 'rules-only', 'by', 'json', 'part'],
   'principles ask': ['stage', 'by', 'json'],
   'principles cite': ['stage', 'by'],
   // The fleet connector writes a credential and user-level hooks; a typo'd flag must
@@ -444,7 +446,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac principles sight <id> [--from-session …] [--from-project …] [--from-ref …] [--excerpt …]  record an explicit sighting
   ac principles reopen <id> --reason …  rejected → proposed, the only way back
   ac principles merge <dup> --into <id>  fold a duplicate's evidence into the survivor, dup stays citable as merged
-  ac principles brief [--stage s] [--work w,…] [--files a,b] [--rules-only] [--by role] [--json]
+  ac principles brief [--stage s] [--work w,…] [--files a,b] [--rules-only] [--by role] [--json] [--part K/N]
                                        the per-task shortlist: hard rules in full + a compact
                                        in-scope index, never syncs (empty stdout when nothing served)
   ac principles ask "<question>" [--stage s] [--by role] [--json]  keyword-ranked search, says why it matched
@@ -471,6 +473,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac config [get [k] | set k v | unset k]  read/update .astrocode/config.json (incl. models)
                                        (stack override: ac config set stack '["rust"]' — replaces detection)
   ac models [max|balanced|fast] [--preview]  apply a per-role model preset (speed switch)
+  ac models <profile> --user           set your default for every project (~/.astro/config.json)
   ac preflight                        warn if HEAD diverged from upstream (silent when in sync)
   ac fixtures check [--phase N]       advisory: warn if this phase's stamped commits changed
                                        the declared data model without the declared seed (never blocks, files debt)
@@ -1436,11 +1439,21 @@ async function main() {
         const filesRaw = flagValues(tail, 'files').flatMap((f) => f.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean));
         const files = filesRaw.map((f) => (f.startsWith('./') ? f.slice(2) : f));
         const by = typeof flags.by === 'string' ? flags.by : 'cli';
+        // #116 — `--part K/N`: part K of the brief packed into at most N hook-sized parts
+        // (each under Claude Code's 10,000-character additionalContext cap). A part with
+        // nothing in it prints nothing, so its hook adds no attachment.
+        let part;
+        if (flags.part !== undefined) {
+          const m = /^(\d+)\/(\d+)$/.exec(String(flags.part));
+          if (!m || +m[1] < 1 || +m[1] > +m[2]) die(`--part takes K/N with 1 ≤ K ≤ N (got "${flags.part}")`);
+          part = { k: +m[1], n: +m[2] };
+        }
         const result = await shortlist({
           dir, cwd: process.cwd(), stage, work: work.length ? work : undefined, files,
-          rulesOnly: flags['rules-only'] === true, by,
+          rulesOnly: flags['rules-only'] === true, by, part,
         });
         if (flags.json) { json(result.json); return; }
+        if (part && !result.text) return;
         if (result.text) console.log(result.text);
         else console.error(`• no principles in scope — stack: ${(result.ctx.stack || []).join(', ') || '(none)'}`);
         reportPrinciplesConflicts(dir);
@@ -2420,12 +2433,30 @@ async function main() {
       // A profile sets the model tier AND the reasoning depth together: both
       // move cost, and leaving one at the host default while switching the
       // other makes "go faster" only half-work.
-      const r = root();
+      //   ac models <profile> --user      write the preset as YOUR default for every
+      //                                   project (~/.astro/config.json, #110); a
+      //                                   project's own config still wins per role
       const name = pos[0];
+      if (flags.user && name) {
+        let preset;
+        try { preset = { models: profileModels(name), reasoning: profileReasoning(name) }; } catch (e) {
+          die(`${e.message} (usage: ac models [${PROFILE_NAMES.join('|')}] [--user] [--preview])`);
+        }
+        const res = setUserRoleDefaults(preset);
+        if (!res.ok) die(res.error);
+        console.log(`✓ your default models + reasoning → ${name} profile (${res.file}) — a project's .astrocode/config.json still wins per role`);
+        json(preset);
+        return;
+      }
+      const r = root();
       if (!name) {
         const c = effectiveConfig(loadConfig(r));
         noteLocalModel();
-        json({ models: c.models || {}, reasoning: c.reasoning || {} });
+        const out = { models: c.models || {}, reasoning: c.reasoning || {} };
+        // Where each role's value comes from — project, user (~/.astro/config.json) or
+        // built-in (unset: the session model / the default reasoning).
+        if (!localModelSession().local) out.sources = withUserRoleDefaults(loadConfig(r)).sources;
+        json(out);
         return;
       }
       let preset;
@@ -2434,7 +2465,7 @@ async function main() {
         preset = profileModels(name);
         reasoningPreset = profileReasoning(name);
       } catch (e) {
-        die(`${e.message} (usage: ac models [${PROFILE_NAMES.join('|')}] [--preview])`);
+        die(`${e.message} (usage: ac models [${PROFILE_NAMES.join('|')}] [--user] [--preview])`);
       }
       if (flags.preview) {
         noteLocalModel();
