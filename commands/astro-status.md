@@ -7,9 +7,11 @@ Show where the project stands and what to do next.
 
 1. Run `ac status`. If there is no `.astrocode/`, tell the user in **one line** to run
    `/astro-new-project`, then stop.
-2. Run `ac registry show` if a remote is configured, to confirm team-coordinated
-   numbering is live. Say **nothing** when no remote is configured; **one line** when it
-   is live.
+2. Run `ac registry show` if a remote is configured. A healthy dependency is not news:
+   say **nothing** when the registry is live and in sync, or when no remote is
+   configured. Say **one line** only when something needs action — unreachable, out of
+   sync (e.g. the registry holds older canon than the project), or misconfigured —
+   naming the command that fixes it.
 3. Tell the user the single best next action in **at most three lines**: where the
    project stands, the single best next action (by number) — e.g. discuss or plan the
    first pending phase, execute a planned phase, verify a finished one, or start a new

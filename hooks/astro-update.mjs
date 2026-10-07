@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
-import { findAstroRoot, readContext, renderBanner, principlesBrief, hookDirOf } from './_astro-ctx.mjs';
+import { findAstroRoot, readContext, renderBanner, principlesBrief, hookDirOf, BRIEF_PARTS } from './_astro-ctx.mjs';
 
 const HOME = join(homedir(), '.astro', 'code');
 const cacheFile = join(HOME, 'update-check.json');
@@ -55,11 +55,13 @@ if (cache && cache.update_available) {
 // (4) the principles shortlist (P10, D1): hard rules + a compact index, delivered as
 // model context via `hookSpecificOutput.additionalContext`, on EVERY source
 // including clear/compact — the (1) banner-skip rule above is visual only, this is
-// model context and would otherwise silently vanish from a compacted session.
+// model context and would otherwise silently vanish from a compacted session. This is
+// part 1 of BRIEF_PARTS (#116): one additionalContext over 10,000 characters reaches the
+// model as a 2 KB preview, so the rest comes from astro-principles.mjs, one hook per part.
 const output = {};
 if (lines.length) output.systemMessage = lines.join('\n\n');
 if (projRoot) {
-  const brief = principlesBrief(projRoot, hookDirOf(import.meta.url), { stage: 'session', by: 'session' });
+  const brief = principlesBrief(projRoot, hookDirOf(import.meta.url), { stage: 'session', by: 'session', part: `1/${BRIEF_PARTS}` });
   if (brief) output.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: brief };
 }
 if (Object.keys(output).length) process.stdout.write(JSON.stringify(output));
