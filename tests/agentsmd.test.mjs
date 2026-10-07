@@ -84,6 +84,22 @@ test('the shipped block explains the loop and both invocation styles', () => {
   assert.match(text, /verified/, 'the verified-vs-complete distinction');
 });
 
+// Phase 35 — Cursor joins Claude Code and Codex as a third host; the table row
+// names the real CLI and install path, never the curl installer or the
+// generic `agent` binary (that one is astro-agent's own, not Cursor's).
+test('the shipped block lists Cursor as a third host without the curl installer or a bare agent binary', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ac-agentsmd-cursor-'));
+  writeAgentsMd(root);
+  const text = readFileSync(join(root, 'AGENTS.md'), 'utf8');
+  assert.match(text, /Cursor/, 'names Cursor as a host');
+  assert.match(text, /cursor-agent/, 'names the cursor-agent CLI');
+  // Negative lookbehind so legitimate "cursor-agent -p" text (the correct
+  // invocation) does not trip the same guard that catches a typo'd bare
+  // "agent -p" (the astro-agent binary, never Cursor's).
+  assert.ok(!/(?<!cursor-)\bagent -p\b|curl .*cursor/i.test(text),
+    'never mentions the curl installer or a bare "agent" binary');
+});
+
 // Phase 25 (P10, D1) — other hosts get no SessionStart hook, so the ONLY way they learn
 // about a developer's personal principles is a static bullet telling them to run the
 // command themselves. The content itself (statements, why, ids) must never be baked
