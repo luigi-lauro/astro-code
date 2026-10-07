@@ -487,7 +487,12 @@ Every astro agent (executor, researcher, planner) runs `brief` for its own stage
 `cite`s what it applies; the verifier only ever sees hard rules, non-blocking (a violation
 is filed as debt, never a failed criterion). The Claude Code session gets the same
 shortlist injected automatically at start/compact; on any other host, the managed
-`AGENTS.md` block tells the agent to run `ac principles brief` itself.
+`AGENTS.md` block tells the agent to run `ac principles brief` itself. Claude Code keeps a
+hook's context whole only up to 10,000 characters, so a large brief is split across four
+SessionStart hooks (`ac principles brief --part K/N`, each under 9,500 characters): hard
+rules then lose their why (one `ac principles show <id>` away), and anything that still
+does not fit is named in a closing `⚠ CUT` line. Set `"principles": { "sessionBrief":
+false }` in `~/.astro/config.json` to turn the injected copy off.
 
 **Transcript sweep — on demand, opt-in.** `/astro-principles-mine` (or `ac principles mine`) sweeps
 past session transcripts for steers you kept giving — corrections, preferences, explicit

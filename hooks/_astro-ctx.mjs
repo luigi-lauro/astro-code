@@ -1071,21 +1071,37 @@ function safeResolveAcEntry(hookDir) {
   try { return resolveAcEntry(hookDir); } catch { return 'ac'; }
 }
 
+// #116 — Claude Code keeps one hook's `additionalContext` whole only up to 10,000
+// characters, so the session brief is served as BRIEF_PARTS SessionStart hooks, each
+// printing one part (`ac principles brief --part K/N`, at most ~9,500 characters).
+// astro-update.mjs serves part 1, astro-principles.mjs the rest; the installers register
+// one entry per part. Raising it means re-running `ac install`/`ac update`.
+export const BRIEF_PARTS = 4;
+
 /**
- * `ac principles brief --stage <stage> --by <by>`'s stdout, or `''` on any failure
- * (P10) — never inside an astro project (`root` absent) either.
+ * `principles.sessionBrief: false` in `~/.astro/config.json` turns the hooks' brief off —
+ * for a user who serves the rules another way and does not want a second copy (#116).
+ */
+export function sessionBriefEnabled(home = homedir()) {
+  const cfg = readJson(join(home, '.astro', 'config.json'));
+  return !(cfg && cfg.principles && cfg.principles.sessionBrief === false);
+}
+
+/**
+ * `ac principles brief --stage <stage> --by <by> [--part K/N]`'s stdout, or `''` on any
+ * failure (P10) — never inside an astro project (`root` absent) either, nor when the user
+ * turned the session brief off.
  *
  * @param {string} root
  * @param {string} hookDir directory of the calling hook file (`import.meta.url`)
- * @param {{ stage?: string, by?: string }} [opts]
+ * @param {{ stage?: string, by?: string, part?: string }} [opts]
  * @returns {string}
  */
-export function principlesBrief(root, hookDir, { stage = 'session', by = 'session' } = {}) {
-  if (!root) return '';
+export function principlesBrief(root, hookDir, { stage = 'session', by = 'session', part } = {}) {
+  if (!root || !sessionBriefEnabled()) return '';
   const entry = safeResolveAcEntry(hookDir);
-  const args = entry.endsWith('.mjs')
-    ? [entry, 'principles', 'brief', '--stage', stage, '--by', by]
-    : ['principles', 'brief', '--stage', stage, '--by', by];
+  const acArgs = ['principles', 'brief', '--stage', stage, '--by', by, ...(part ? ['--part', part] : [])];
+  const args = entry.endsWith('.mjs') ? [entry, ...acArgs] : acArgs;
   const cmd = entry.endsWith('.mjs') ? process.execPath : entry;
   try {
     const r = spawnSync(cmd, args, {

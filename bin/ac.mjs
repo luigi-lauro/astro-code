@@ -221,7 +221,7 @@ const ALLOWED_FLAGS = {
   'principles merge': ['into'],
   // Phase 25 (P1) — retrieval never runs `principlesSync` (hot path of every agent
   // task and session start), so its flags are read-only knobs only.
-  'principles brief': ['stage', 'work', 'files', 'rules-only', 'by', 'json'],
+  'principles brief': ['stage', 'work', 'files', 'rules-only', 'by', 'json', 'part'],
   'principles ask': ['stage', 'by', 'json'],
   'principles cite': ['stage', 'by'],
   // The fleet connector writes a credential and user-level hooks; a typo'd flag must
@@ -446,7 +446,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac principles sight <id> [--from-session …] [--from-project …] [--from-ref …] [--excerpt …]  record an explicit sighting
   ac principles reopen <id> --reason …  rejected → proposed, the only way back
   ac principles merge <dup> --into <id>  fold a duplicate's evidence into the survivor, dup stays citable as merged
-  ac principles brief [--stage s] [--work w,…] [--files a,b] [--rules-only] [--by role] [--json]
+  ac principles brief [--stage s] [--work w,…] [--files a,b] [--rules-only] [--by role] [--json] [--part K/N]
                                        the per-task shortlist: hard rules in full + a compact
                                        in-scope index, never syncs (empty stdout when nothing served)
   ac principles ask "<question>" [--stage s] [--by role] [--json]  keyword-ranked search, says why it matched
@@ -1439,11 +1439,21 @@ async function main() {
         const filesRaw = flagValues(tail, 'files').flatMap((f) => f.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean));
         const files = filesRaw.map((f) => (f.startsWith('./') ? f.slice(2) : f));
         const by = typeof flags.by === 'string' ? flags.by : 'cli';
+        // #116 — `--part K/N`: part K of the brief packed into at most N hook-sized parts
+        // (each under Claude Code's 10,000-character additionalContext cap). A part with
+        // nothing in it prints nothing, so its hook adds no attachment.
+        let part;
+        if (flags.part !== undefined) {
+          const m = /^(\d+)\/(\d+)$/.exec(String(flags.part));
+          if (!m || +m[1] < 1 || +m[1] > +m[2]) die(`--part takes K/N with 1 ≤ K ≤ N (got "${flags.part}")`);
+          part = { k: +m[1], n: +m[2] };
+        }
         const result = await shortlist({
           dir, cwd: process.cwd(), stage, work: work.length ? work : undefined, files,
-          rulesOnly: flags['rules-only'] === true, by,
+          rulesOnly: flags['rules-only'] === true, by, part,
         });
         if (flags.json) { json(result.json); return; }
+        if (part && !result.text) return;
         if (result.text) console.log(result.text);
         else console.error(`• no principles in scope — stack: ${(result.ctx.stack || []).join(', ') || '(none)'}`);
         reportPrinciplesConflicts(dir);

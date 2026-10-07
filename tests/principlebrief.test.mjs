@@ -172,3 +172,30 @@ test('projectRelative: absolute and subdir-relative paths become project-relativ
   assert.deepEqual(projectRelative(['x.mjs'], { root, cwd: '/work/proj/lib' }), ['lib/x.mjs']);
   assert.deepEqual(projectRelative(['/other/place/a.mjs'], { root, cwd: root }), ['/other/place/a.mjs']);
 });
+
+// #116 — session parts under Claude Code's 10,000-character additionalContext cap.
+import { packBrief, BRIEF_PART_MAX } from '../lib/principlebrief.mjs';
+
+function bigBrief(nRules) {
+  const rules = Array.from({ length: nRules }, (_, i) => ({
+    id: `r-${String(i).padStart(3, '0')}`, kind: 'pattern', strength: 'rule',
+    statement: `${'S'.repeat(900)} END${i}`, why: 'W'.repeat(400), clash: [],
+  }));
+  return { rules, index: [], more: 0, total: 0 };
+}
+
+test('#116 packBrief: a brief that fits is served whole, whys included', () => {
+  const { parts, delivered } = packBrief(bigBrief(2), {}, { parts: 4 });
+  assert.equal(parts.length, 1);
+  assert.ok(parts[0].includes('WWWW'));
+  assert.deepEqual(delivered.rules, ['r-000', 'r-001']);
+});
+
+test('#116 packBrief: too many rules for the parts ends with an explicit CUT line, never silently', () => {
+  const { parts, delivered } = packBrief(bigBrief(40), {}, { parts: 2 });
+  assert.equal(parts.length, 2);
+  for (const p of parts) assert.ok(p.length <= BRIEF_PART_MAX, `part is ${p.length}`);
+  const cut = 40 - delivered.rules.length;
+  assert.ok(cut > 0);
+  assert.match(parts[1].split('\n').pop(), new RegExp(`CUT: ${cut} hard rules`));
+});
