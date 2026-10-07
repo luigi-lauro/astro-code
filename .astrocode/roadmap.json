@@ -1,5 +1,13 @@
 {
   "version": 1,
-  "milestone": 10,
-  "phases": []
+  "milestone": 11,
+  "phases": [
+    {
+      "number": 35,
+      "name": "Cursor host adapter",
+      "slug": "35-cursor-host-adapter",
+      "status": "pending",
+      "milestone": 11
+    }
+  ]
 }

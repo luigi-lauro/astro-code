@@ -1,7 +1,7 @@
 # Roadmap
 
-**Milestone 10**
+**Milestone 11**
 
-_No phases yet. Add one with `ac phase add <name>`._
+- [ ] Phase 35 — Cursor host adapter `pending`
 
 <!-- generated from roadmap.json — edits here are overwritten; use `ac phase note <phase> "<text>"` -->
