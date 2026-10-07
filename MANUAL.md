@@ -605,6 +605,12 @@ independent and both move cost — a cheap model at `xhigh` can outspend an expe
 - **max** — opus everywhere (`xhigh` on planner/verifier), except `integrator`, which stays
   sonnet — opus on a cherry-pick is waste.
 
+Running several projects under one policy? `ac models <profile> --user` writes the pair to
+`~/.astro/config.json` as **your** default. Per role, the project's value wins, then yours,
+then the built-in one; `ac models` shows which (`sources`). A new project leaves the roles
+you set unset, so it follows your default; an existing one keeps its own until you
+`ac config unset models.<role>` there.
+
 The tier ladder is **opus→sonnet for every role; haiku is excluded everywhere**. ADR-035
 reverted the old `integrator` carve-out: benchmarking showed haiku's cherry-pick *judgement*
 was sound but its *discipline* was not — it ran a bare `git stash -u` in the shared tree and

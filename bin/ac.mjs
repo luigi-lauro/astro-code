@@ -14,9 +14,11 @@ import { profileModels, PROFILE_NAMES, localModelSession, sessionModels } from '
 // A local-model session (lib/models.mjs) cannot serve the configured tiers: every role runs
 // on the session's model with no reasoning effort. Applied where the commands READ models
 // and reasoning; the stored config is never changed, so leaving the local model restores it.
+// A role the project leaves unset falls back to the user's default in ~/.astro/config.json
+// (#110), then to the built-in default.
 function effectiveConfig(cfg) {
   const s = localModelSession();
-  return s.local ? { ...cfg, models: sessionModels(), reasoning: {} } : cfg;
+  return s.local ? { ...cfg, models: sessionModels(), reasoning: {} } : withUserRoleDefaults(cfg).cfg;
 }
 // #93 — one line for what `agent_tools` in ~/.astro/config.json added, warnings on stderr.
 function reportAgentTools(res) {
@@ -72,7 +74,7 @@ import {
   setBacklogNote,
 } from '../lib/backlog.mjs';
 import { runFixturesCheck } from '../lib/fixtures.mjs';
-import { loadConfig, updateConfig } from '../lib/config.mjs';
+import { loadConfig, updateConfig, withUserRoleDefaults, setUserRoleDefaults } from '../lib/config.mjs';
 import {
   canonText, loadCanon, addDecision, canonPull, canonPush, canonDedupe,
   supersedeDecision, retireDecision, amendDecision, canonCheck, canonStats, canonDrift,
@@ -471,6 +473,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac config [get [k] | set k v | unset k]  read/update .astrocode/config.json (incl. models)
                                        (stack override: ac config set stack '["rust"]' — replaces detection)
   ac models [max|balanced|fast] [--preview]  apply a per-role model preset (speed switch)
+  ac models <profile> --user           set your default for every project (~/.astro/config.json)
   ac preflight                        warn if HEAD diverged from upstream (silent when in sync)
   ac fixtures check [--phase N]       advisory: warn if this phase's stamped commits changed
                                        the declared data model without the declared seed (never blocks, files debt)
@@ -2420,12 +2423,30 @@ async function main() {
       // A profile sets the model tier AND the reasoning depth together: both
       // move cost, and leaving one at the host default while switching the
       // other makes "go faster" only half-work.
-      const r = root();
+      //   ac models <profile> --user      write the preset as YOUR default for every
+      //                                   project (~/.astro/config.json, #110); a
+      //                                   project's own config still wins per role
       const name = pos[0];
+      if (flags.user && name) {
+        let preset;
+        try { preset = { models: profileModels(name), reasoning: profileReasoning(name) }; } catch (e) {
+          die(`${e.message} (usage: ac models [${PROFILE_NAMES.join('|')}] [--user] [--preview])`);
+        }
+        const res = setUserRoleDefaults(preset);
+        if (!res.ok) die(res.error);
+        console.log(`✓ your default models + reasoning → ${name} profile (${res.file}) — a project's .astrocode/config.json still wins per role`);
+        json(preset);
+        return;
+      }
+      const r = root();
       if (!name) {
         const c = effectiveConfig(loadConfig(r));
         noteLocalModel();
-        json({ models: c.models || {}, reasoning: c.reasoning || {} });
+        const out = { models: c.models || {}, reasoning: c.reasoning || {} };
+        // Where each role's value comes from — project, user (~/.astro/config.json) or
+        // built-in (unset: the session model / the default reasoning).
+        if (!localModelSession().local) out.sources = withUserRoleDefaults(loadConfig(r)).sources;
+        json(out);
         return;
       }
       let preset;
@@ -2434,7 +2455,7 @@ async function main() {
         preset = profileModels(name);
         reasoningPreset = profileReasoning(name);
       } catch (e) {
-        die(`${e.message} (usage: ac models [${PROFILE_NAMES.join('|')}] [--preview])`);
+        die(`${e.message} (usage: ac models [${PROFILE_NAMES.join('|')}] [--user] [--preview])`);
       }
       if (flags.preview) {
         noteLocalModel();
