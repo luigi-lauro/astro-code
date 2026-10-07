@@ -183,3 +183,24 @@ a criterion names. No real `cursor-agent`, `codex`, `claude` or `agent` may be o
   is not recognised, errors or hangs; delegation fails, hangs past the timeout, or never
   reaches the subagent; `agent` now resolves to Cursor's binary; the hook branch is
   misreported.
+- **Amendment (2026-10-07, after the live check — method only, bar unchanged):** steps (c)
+  and (d) cannot run over the SSH bridge: `cursor-agent` reads its login from the macOS
+  keychain, which is locked in SSH sessions, and the free plan has no API keys. For (c)/(d)
+  the evidence is the developer-run `live-check*.sh` scripts in this directory, run from a
+  Terminal on the Mac, and their `live-check*.log` output; (a), (b) and (e) stay host-bridge
+  checks. For (d), "attributable to the subagent run" means a Cursor Task subagent
+  (`explore`/`generalPurpose`) ran carrying the astro-mapper instructions — the CLI cannot
+  register `~/.cursor/agents` files as subagent types (CONTEXT decision 7).
+
+### C14 — Added after the live check: Cursor routes agents to its built-in subagents, and lists each astro-code command once
+- **Observe:** (a) the installed Cursor commands' host note tells the model to use `explore`
+  for agents whose file has `readonly: true`, else `generalPurpose`, with the agent file's
+  text as the prompt, and never to pass `astro-*` as `subagent_type`; (b) every SKILL.md the
+  Codex adapter renders (commands and agents) carries a nested `metadata:` block with
+  `surfaces: codex` and no `cli`, while Codex's other keys and the openai.yaml sidecar are
+  unchanged; (c) live, after `ac install` on the Mac, a developer-run Cursor session lists no
+  `astro-*` skill loaded from `~/.codex/skills` (live-check-3.log), and a delegation that
+  follows the note's rule completes and exits 0.
+- **Fails if:** the note still names `astro-*` as a `subagent_type`; any Codex skill lacks
+  the tag or opts into `cli`; Cursor still lists astro-code skills from `~/.codex/skills`;
+  the suite is not green.

@@ -49,6 +49,20 @@ alongside Claude Code and Codex, via one adapter `lib/hosts/cursor.mjs` register
    Mac it is astro-agent; Cursor's curl installer would overwrite `~/.local/bin/agent`).
    A test asserts `execCommand().command === 'cursor-agent'`.
 
+7. **Agents run in Cursor's built-in subagents (decided after the live check).** The
+   CLI's subagent loader reads only `<workspace>/.cursor/agents` (+ `.claude`/`.grok`
+   with third-party import) — never `~/.cursor/agents` — and the Task tool rejects any
+   `subagent_type` outside its built-in enum (live-check-2.log). So `~/.cursor/agents`
+   files are instructions: CURSOR_NOTE routes the Agent tool to `explore` (file has
+   `readonly: true`) or `generalPurpose`, with the agent file's text as the prompt.
+   Rejected: a Cursor plugin package (undocumented format, another spike); writing
+   project-level `.cursor/agents` (generated files in every repo).
+8. **No duplicate listing from the Codex install (decided after the live check).**
+   Cursor also loads `~/.codex/skills`, so every astro command/agent appeared twice.
+   The Codex adapter tags its SKILL.md files `metadata: {surfaces: codex}`; Cursor's
+   skill parser drops a skill whose `metadata.surfaces` lacks `cli`. Codex ignores the
+   key (its own shipped skills use the same `metadata:` block).
+
 ## Scope
 
 In: `lib/hosts/cursor.mjs`, registration in `HOSTS`, install/uninstall wiring
