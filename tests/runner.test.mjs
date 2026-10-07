@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getHost } from '../lib/hosts/index.mjs';
-import { runWave, buildInvocation } from '../lib/hosts/runner.mjs';
+import { runWave, buildInvocation, defaultSpawn } from '../lib/hosts/runner.mjs';
 import { missingFromWave } from '../lib/waves.mjs';
 
 const claude = getHost('claude');
@@ -211,4 +211,63 @@ test('every task field the adapters accept is actually forwarded', () => {
 
   const c = buildInvocation(claude, { prompt: 'p', permissionMode: 'acceptEdits' });
   assert.equal(c.args[c.args.indexOf('--permission-mode') + 1], 'acceptEdits');
+});
+
+// --- Cursor end-to-end (C8) -------------------------------------------------------
+// Pins the whole stack — buildInvocation + spawn + parseResult — for a host that
+// already exists (t10/t11). Dynamic import per ADR-018, even though nothing here
+// is RED: the adapter is reached only through the runner's public surface.
+
+test('C8: three Cursor tasks through runWave — argv shape, spawn cwd, and parseResult', async () => {
+  const cursor = (await import('../lib/hosts/cursor.mjs')).default;
+  const tasks = [
+    { id: 'a', prompt: 'p1', model: 'm1', worktree: true, cwd: '/tmp/w' },
+    { id: 'b', prompt: 'p2', cwd: '/tmp/w' },
+    { id: 'c', prompt: 'p3', cwd: '/tmp/w' },
+  ];
+  const calls = [];
+  const spawnFn = async (opts) => {
+    calls.push({ command: opts.command, args: opts.args, cwd: opts.cwd });
+    const i = calls.length - 1;
+    if (i === 0) return { code: 0, stdout: JSON.stringify({ type: 'result', result: 'done-1' }), stderr: '' };
+    if (i === 1) return { code: 1, stdout: '', stderr: 'boom' };
+    return { code: 0, stdout: 'not json', stderr: '' };
+  };
+  const results = await runWave(tasks, { host: cursor, spawnFn, concurrency: 1 });
+
+  for (const c of calls) {
+    assert.equal(c.command, 'cursor-agent');
+    assert.ok(c.args.includes('-p'));
+    assert.equal(c.args[c.args.indexOf('--output-format') + 1], 'json');
+    assert.ok(c.args.includes('--force'), '--force present');
+    assert.ok(c.args.includes('--trust'), '--trust present');
+    assert.equal(c.cwd, '/tmp/w', 'spawn cwd comes from the task, not host.execCommand');
+  }
+  assert.equal(calls[0].args[calls[0].args.indexOf('--model') + 1], 'm1', 'task 1 only: --model');
+  assert.ok(calls[0].args.includes('-w'), 'task 1 only: -w');
+  assert.ok(!calls[1].args.includes('--model') && !calls[1].args.includes('-w'), 'task 2: neither');
+  assert.ok(!calls[2].args.includes('--model') && !calls[2].args.includes('-w'), 'task 3: neither');
+  assert.equal(calls[0].args.at(-1), 'p1', 'prompt is always the last argv token');
+  assert.equal(calls[1].args.at(-1), 'p2');
+  assert.equal(calls[2].args.at(-1), 'p3');
+
+  assert.equal(results[0].ok, true);
+  assert.equal(results[0].result, 'done-1', 'exit 0 + well-formed result → parseResult wins over readResult');
+  assert.equal(results[1], null, 'non-zero exit stays a hole even for a host with parseResult');
+  assert.equal(results[2], null, 'exit 0 but unparseable JSON is a hole, not a crash');
+});
+
+test('Cursor hang path: a timeout kills the stuck process and the task still resolves to a hole', async () => {
+  const cursor = (await import('../lib/hosts/cursor.mjs')).default;
+  // Swap in a process that never exits on its own — the real risk this host's
+  // header note warns about (`-p` with a history of hanging) — instead of
+  // `cursor-agent`'s own argv, and let defaultSpawn's real SIGTERM-on-timeout
+  // path do the killing.
+  const spawnFn = (opts) => defaultSpawn({
+    ...opts, command: process.execPath, args: ['-e', 'setInterval(() => {}, 1e3)'],
+  });
+  const results = await runWave([{ id: 'a', prompt: 'hang me' }], {
+    host: cursor, spawnFn, timeoutMs: 300,
+  });
+  assert.deepEqual(results, [null], 'the timeout must still resolve the wave, not hang the test');
 });
