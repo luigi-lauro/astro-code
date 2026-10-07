@@ -15,6 +15,10 @@ import { readAgentTools, withExtraTools } from '../lib/agenttools.mjs';
 const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = readdirSync(join(FRAMEWORK, 'agents')).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3));
 const LEAN = ['mcp__lean-ctx__ctx_read', 'mcp__lean-ctx__ctx_search'];
+// P10 (phase 35 t13): never let a real `cursor-agent` on the test runner's own
+// PATH get detected by these install-running tests — CURSOR_CONFIG_DIR alone
+// is not enough, since `detect()` also probes PATH.
+const NO_CURSOR_PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
 
 function home(config) {
   const h = mkdtempSync(join(tmpdir(), 'ac-agt-'));
@@ -75,7 +79,7 @@ function install(h) {
   const cfg = join(h, '.claude');
   mkdirSync(cfg, { recursive: true });
   return spawnSync(process.execPath, [join(FRAMEWORK, 'bin', 'ac.mjs'), 'install'], {
-    cwd: h, encoding: 'utf8', env: { ...process.env, HOME: h, CLAUDE_CONFIG_DIR: cfg, CODEX_HOME: join(h, 'no-codex') },
+    cwd: h, encoding: 'utf8', env: { ...process.env, HOME: h, CLAUDE_CONFIG_DIR: cfg, CODEX_HOME: join(h, 'no-codex'), CURSOR_CONFIG_DIR: join(h, 'no-cursor'), PATH: NO_CURSOR_PATH },
   });
 }
 
@@ -118,7 +122,7 @@ test('a self-hosted config dir (agents/ IS the source) is named: agent_tools can
   // the config dir's agents/ is the framework's own source dir — the sandbox bind-mount case
   spawnSync('ln', ['-s', join(FRAMEWORK, 'agents'), join(cfg, 'agents')]);
   const r = spawnSync(process.execPath, [join(FRAMEWORK, 'bin', 'ac.mjs'), 'install'], {
-    cwd: h, encoding: 'utf8', env: { ...process.env, HOME: h, CLAUDE_CONFIG_DIR: cfg, CODEX_HOME: join(h, 'no-codex') },
+    cwd: h, encoding: 'utf8', env: { ...process.env, HOME: h, CLAUDE_CONFIG_DIR: cfg, CODEX_HOME: join(h, 'no-codex'), CURSOR_CONFIG_DIR: join(h, 'no-cursor'), PATH: NO_CURSOR_PATH },
   });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /reads the agents from the source checkout itself — agent_tools does not apply there/);
@@ -128,7 +132,7 @@ test('a self-hosted config dir (agents/ IS the source) is named: agent_tools can
 // ── `ac agent-tools`: change it without hand-editing JSON, applied at once ──────
 
 const acIn = (h, args) => spawnSync(process.execPath, [join(FRAMEWORK, 'bin', 'ac.mjs'), ...args], {
-  cwd: h, encoding: 'utf8', env: { ...process.env, HOME: h, CLAUDE_CONFIG_DIR: join(h, '.claude'), CODEX_HOME: join(h, 'no-codex') },
+  cwd: h, encoding: 'utf8', env: { ...process.env, HOME: h, CLAUDE_CONFIG_DIR: join(h, '.claude'), CODEX_HOME: join(h, 'no-codex'), CURSOR_CONFIG_DIR: join(h, 'no-cursor'), PATH: NO_CURSOR_PATH },
 });
 const cfgOf = (h) => JSON.parse(readFileSync(join(h, '.astro', 'config.json'), 'utf8'));
 
