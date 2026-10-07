@@ -217,6 +217,36 @@
       "file": "lib/principles.mjs",
       "dropped_at": "2026-09-24T17:13:48.183Z",
       "drop_reason": "fixed in phase 24 (t5): an edited accept records edited + accepted"
+    },
+    {
+      "id": "2026-10-07-cursor-hook-ownership-matched-by-full",
+      "title": "Cursor hook ownership matched by full path, not script filename as decision 2 specifies",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-07T13:54:51.608Z",
+      "why": "stale/duplicate entries if astro home path differs; Claude adapter matches filename",
+      "phase": "35",
+      "file": "lib/hosts/cursor.mjs"
+    },
+    {
+      "id": "2026-10-07-headless-docs-omit-force-so-shell-is",
+      "title": "Headless docs omit --force so Shell is blocked",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-07T13:54:51.545Z",
+      "why": "live logs show 'Shell was blocked'; ac-dependent commands degrade headless",
+      "phase": "35",
+      "file": "MANUAL.md"
+    },
+    {
+      "id": "2026-10-07-uninstall-message-says-symlink-s-for",
+      "title": "Uninstall message says 'symlink(s)' for copied Cursor files",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-07T13:54:51.675Z",
+      "why": "misleading output",
+      "phase": "35",
+      "file": "bin/ac.mjs"
     }
   ]
 }

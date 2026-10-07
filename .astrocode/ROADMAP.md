@@ -2,6 +2,6 @@
 
 **Milestone 11**
 
-- [ ] Phase 35 — Cursor host adapter `pending`
+- [x] Phase 35 — Cursor host adapter `complete` · planned
 
 <!-- generated from roadmap.json — edits here are overwritten; use `ac phase note <phase> "<text>"` -->
