@@ -491,7 +491,7 @@ moment. It runs ONLY when you ask for it: never from a hook, never on a schedule
 statusline/SessionStart banner nudge you towards it once 10+ session files in the current
 project have gone unswept — a stat-only check (file sizes vs. a recorded watermark, never
 opening a transcript) that stays cheap even against a huge history. Scope defaults to the
-current project (every Claude profile + Codex + Cursor); `--all` or `--project <path>` widen or
+current project (every Claude profile + Codex; Cursor sessions are not mined yet); `--all` or `--project <path>` widen or
 retarget it deliberately. Only turns you actually TYPED are read — tool results, injected
 context, expanded command bodies, subagent and headless (`claude -p`/SDK) sessions are all
 excluded before anything reaches the engine. Everything is redacted (the same shapes
