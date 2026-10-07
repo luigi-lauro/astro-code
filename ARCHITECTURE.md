@@ -1,7 +1,7 @@
 # astro-code — Architecture
 
 astro-code is a lean, multi-developer planning and execution system for coding
-agents, host-agnostic across Claude Code and Codex CLI — on Claude or on a local model. Planning state lives in
+agents, host-agnostic across Claude Code, Codex CLI and Cursor — on Claude or on a local model. Planning state lives in
 plain files in your repo — milestones, phases, a roadmap — and every phase is
 carried through a discuss → plan → execute → verify → accept loop.
 

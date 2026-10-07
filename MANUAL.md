@@ -43,6 +43,7 @@ It's idempotent; `ac uninstall` reverses it everywhere.
 |---|---|---|
 | **Claude Code** | symlinked into the base `~/.claude` **and every jean-claude profile** (auto-detected from `~/.claude/.jean-claude/profiles.json`) | `/astro-plan 3` |
 | **Codex CLI** | skills under `~/.codex/skills/` | `$astro-plan 3` |
+| **Cursor** | commands `~/.cursor/commands/`, agents `~/.cursor/agents/` (`$CURSOR_CONFIG_DIR` honoured) | `/astro-plan 3` |
 
 **Updating** is one command: `/astro-update` (or `ac update`) — it pulls the latest,
 refreshes the global CLI, and re-links across every profile. The first time, if it
@@ -136,6 +137,25 @@ hook to carry a `trusted_hash` in `config.toml`, which astro-code will not forge
 behalf), and hook-driven session state. Everything else — the full loop, the registry,
 worktree-isolated parallel execution — works the same, because the engine is
 host-agnostic and `ac` drives the orchestration itself.
+
+### Using it on Cursor
+
+Cursor counts as present when `$CURSOR_CONFIG_DIR` (or `~/.cursor`) exists, or
+`cursor-agent` is on `PATH` — install its CLI with `brew install --cask cursor-cli`, never
+the curl installer (it overwrites `~/.local/bin/agent`, which is also the name of
+astro-agent's own binary). `ac install` publishes commands and agents straight to
+`~/.cursor/commands` and `~/.cursor/agents`; each installed command carries a short host
+note at the top — no Workflow tool on Cursor, so a step that needs orchestration falls to
+subagents, else plain inline work. Agents run on whatever model the Cursor session itself
+is using (`model: inherit`); read-only roles (researcher, verifier, mapper, …) are derived
+from the source agent's own `tools:` list, not a hard-coded list, and installed with
+`readonly: true`.
+
+Hooks and the status line are only wired natively into Cursor's own `hooks.json` /
+`cli-config.json` when Claude Code is **absent** on the machine; when Claude Code is
+present, Cursor imports its hooks itself, so astro-code leaves Cursor's files alone and
+runs there through that import instead — `ac install`/`ac update` say which branch was
+taken. Headless: `cursor-agent -p --trust "/astro-status"`.
 
 ---
 
@@ -471,7 +491,7 @@ moment. It runs ONLY when you ask for it: never from a hook, never on a schedule
 statusline/SessionStart banner nudge you towards it once 10+ session files in the current
 project have gone unswept — a stat-only check (file sizes vs. a recorded watermark, never
 opening a transcript) that stays cheap even against a huge history. Scope defaults to the
-current project (every Claude profile + Codex); `--all` or `--project <path>` widen or
+current project (every Claude profile + Codex + Cursor); `--all` or `--project <path>` widen or
 retarget it deliberately. Only turns you actually TYPED are read — tool results, injected
 context, expanded command bodies, subagent and headless (`claude -p`/SDK) sessions are all
 excluded before anything reaches the engine. Everything is redacted (the same shapes
@@ -585,7 +605,8 @@ reverted the old `integrator` carve-out: benchmarking showed haiku's cherry-pick
 was sound but its *discipline* was not — it ran a bare `git stash -u` in the shared tree and
 destroyed a completed phase plan. Speed comes from opus→sonnet, never from dropping a role
 to haiku. Hosts clamp depth to their own ceiling (Codex tops out at `xhigh`) rather than
-silently falling back.
+silently falling back; on Cursor there is no separate reasoning dial in v1 — depth lives
+in the model id suffix, so `reasoning.<role>` is not applied there.
 
 The third dial is per-**phase**, not per-role: `ac phase effort <n> light|standard|deep`
 (ADR-022) budgets how many verify→remediate cycles a phase may burn — 0, 1, or several.
@@ -753,7 +774,8 @@ astro-code itself captures (ADR-065). A forge server reads the store back read-o
 /astro-kit-new /astro-kit-convert /astro-kit-test /astro-kit-source /astro-kit-publish
 ```
 
-On Codex, invoke the same commands as `$astro-plan 3`.
+On Codex, invoke the same commands as `$astro-plan 3`. On Cursor, the same `/astro-plan 3`
+works, or headless as `cursor-agent -p --trust "/astro-status"`.
 
 ### CLI
 
