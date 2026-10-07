@@ -1,16 +1,5 @@
 {
   "version": 1,
   "milestone": 11,
-  "phases": [
-    {
-      "number": 35,
-      "name": "Cursor host adapter",
-      "slug": "35-cursor-host-adapter",
-      "status": "complete",
-      "milestone": 11,
-      "accepted_by": "matteo.alvazzi@gmail.com",
-      "accepted_kind": "human",
-      "accepted_at": "2026-10-07T14:08:26.369Z"
-    }
-  ]
+  "phases": []
 }
