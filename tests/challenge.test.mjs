@@ -334,7 +334,10 @@ test('templates/PROJECT.md has an ## Open questions section', () => {
 });
 
 test('install publishes templates/challenge.md and an astro-challenge skill for Codex', async (t) => {
-  const prev = { HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME };
+  const prev = {
+    HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME,
+    CURSOR: process.env.CURSOR_CONFIG_DIR, PATH: process.env.PATH,
+  };
   const fakeHome = mkdtempSync(join(tmpdir(), 'ac-challenge-install-'));
   mkdirSync(join(fakeHome, '.claude'), { recursive: true });
   const codexHome = join(fakeHome, '.codex');
@@ -342,8 +345,12 @@ test('install publishes templates/challenge.md and an astro-challenge skill for 
   process.env.HOME = fakeHome;
   delete process.env.CLAUDE_CONFIG_DIR;
   process.env.CODEX_HOME = codexHome;
+  // Pin Cursor out of the picture (phase 35 t13/P10): otherwise a real
+  // `cursor-agent` on the test runner's own PATH would get wired here too.
+  delete process.env.CURSOR_CONFIG_DIR;
+  process.env.PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
   t.after(() => {
-    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX]]) {
+    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX], ['CURSOR_CONFIG_DIR', prev.CURSOR], ['PATH', prev.PATH]]) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }

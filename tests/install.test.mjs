@@ -12,12 +12,22 @@ import { fileURLToPath } from 'node:url';
 const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function withEnv({ home, configDir }, fn) {
-  const prev = { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
+  const prev = {
+    HOME: process.env.HOME,
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+    CURSOR_CONFIG_DIR: process.env.CURSOR_CONFIG_DIR,
+    PATH: process.env.PATH,
+  };
   process.env.HOME = home;
   if (configDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
   else process.env.CLAUDE_CONFIG_DIR = configDir;
+  // Pin Cursor out of the picture (phase 35 t13/P10): without this, a real
+  // `cursor-agent` on the test runner's own PATH would get detected and
+  // wired by these install tests, making outcomes machine-dependent.
+  delete process.env.CURSOR_CONFIG_DIR;
+  process.env.PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
   return Promise.resolve(fn()).finally(() => {
-    for (const k of ['HOME', 'CLAUDE_CONFIG_DIR']) {
+    for (const k of ['HOME', 'CLAUDE_CONFIG_DIR', 'CURSOR_CONFIG_DIR', 'PATH']) {
       if (prev[k] === undefined) delete process.env[k];
       else process.env[k] = prev[k];
     }
@@ -232,8 +242,12 @@ test('installClaude stamps the framework version into the home', async () => {
   const fakeHome = mkdtempSync(join(tmpdir(), 'ac-ver-'));
   const prevHome = process.env.HOME;
   const prevCfg = process.env.CLAUDE_CONFIG_DIR;
+  const prevCursorCfg = process.env.CURSOR_CONFIG_DIR;
+  const prevPath = process.env.PATH;
   process.env.HOME = fakeHome;
   delete process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CURSOR_CONFIG_DIR; // P10: keep Cursor out of the picture
+  process.env.PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
   try {
     const { installClaude } = await import(`../lib/install.mjs?ver=${encodeURIComponent(fakeHome)}`);
     installClaude(FRAMEWORK);
@@ -246,6 +260,9 @@ test('installClaude stamps the framework version into the home', async () => {
     process.env.HOME = prevHome;
     if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = prevCfg;
+    if (prevCursorCfg === undefined) delete process.env.CURSOR_CONFIG_DIR;
+    else process.env.CURSOR_CONFIG_DIR = prevCursorCfg;
+    process.env.PATH = prevPath;
   }
 });
 
@@ -260,10 +277,15 @@ test('install publishes to every detected host, each in its own format', async (
   const codexHome = join(fakeHome, '.codex');
   mkdirSync(codexHome, { recursive: true });
 
-  const prev = { HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME };
+  const prev = {
+    HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME,
+    CURSOR: process.env.CURSOR_CONFIG_DIR, PATH: process.env.PATH,
+  };
   process.env.HOME = fakeHome;
   delete process.env.CLAUDE_CONFIG_DIR;
   process.env.CODEX_HOME = codexHome;
+  delete process.env.CURSOR_CONFIG_DIR; // P10: keep Cursor out of the picture
+  process.env.PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
   try {
     const { installClaude, uninstallClaude } = await import(`../lib/install.mjs?multi=${encodeURIComponent(fakeHome)}`);
     const res = installClaude(FRAMEWORK);
@@ -294,7 +316,7 @@ test('install publishes to every detected host, each in its own format', async (
     assert.ok(!existsSync(join(codexHome, 'skills', 'astro-plan')), 'codex command removed');
     assert.ok(!existsSync(join(codexHome, 'skills', 'astro-executor')), 'codex skill dir removed');
   } finally {
-    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX]]) {
+    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX], ['CURSOR_CONFIG_DIR', prev.CURSOR], ['PATH', prev.PATH]]) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
@@ -311,10 +333,15 @@ test('publishing prunes our stale entries but never the user\'s own files', asyn
   mkdirSync(join(codexHome, 'skills', 'my-own'), { recursive: true });
   writeFileSync(join(codexHome, 'skills', 'my-own', 'SKILL.md'), 'do not touch');
 
-  const prev = { HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME };
+  const prev = {
+    HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME,
+    CURSOR: process.env.CURSOR_CONFIG_DIR, PATH: process.env.PATH,
+  };
   process.env.HOME = fakeHome;
   delete process.env.CLAUDE_CONFIG_DIR;
   process.env.CODEX_HOME = codexHome;
+  delete process.env.CURSOR_CONFIG_DIR; // P10: keep Cursor out of the picture
+  process.env.PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
   try {
     const { installClaude } = await import(`../lib/install.mjs?prune=${encodeURIComponent(fakeHome)}`);
     installClaude(FRAMEWORK);
@@ -323,7 +350,7 @@ test('publishing prunes our stale entries but never the user\'s own files', asyn
     assert.equal(readFileSync(join(codexHome, 'skills', 'my-own', 'SKILL.md'), 'utf8'), 'do not touch',
       'a skill the user put there is never ours to delete');
   } finally {
-    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX]]) {
+    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX], ['CURSOR_CONFIG_DIR', prev.CURSOR], ['PATH', prev.PATH]]) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
@@ -342,10 +369,15 @@ test('a stale file INSIDE an owned skill dir is cleaned, not just top-level ones
   writeFileSync(join(codexHome, 'skills', 'astro-status', 'agents', 'openai.yaml'), 'stale: true');
   writeFileSync(join(codexHome, 'skills', 'astro-status', 'leftover.md'), 'from an old version');
 
-  const prev = { HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME };
+  const prev = {
+    HOME: process.env.HOME, CFG: process.env.CLAUDE_CONFIG_DIR, CX: process.env.CODEX_HOME,
+    CURSOR: process.env.CURSOR_CONFIG_DIR, PATH: process.env.PATH,
+  };
   process.env.HOME = fakeHome;
   delete process.env.CLAUDE_CONFIG_DIR;
   process.env.CODEX_HOME = codexHome;
+  delete process.env.CURSOR_CONFIG_DIR; // P10: keep Cursor out of the picture
+  process.env.PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
   try {
     const { installClaude } = await import(`../lib/install.mjs?stale=${encodeURIComponent(fakeHome)}`);
     installClaude(FRAMEWORK);
@@ -358,7 +390,7 @@ test('a stale file INSIDE an owned skill dir is cleaned, not just top-level ones
     // Agents still legitimately have one.
     assert.ok(existsSync(join(codexHome, 'skills', 'astro-executor', 'agents', 'openai.yaml')));
   } finally {
-    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX]]) {
+    for (const [k, v] of [['HOME', prev.HOME], ['CLAUDE_CONFIG_DIR', prev.CFG], ['CODEX_HOME', prev.CX], ['CURSOR_CONFIG_DIR', prev.CURSOR], ['PATH', prev.PATH]]) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }

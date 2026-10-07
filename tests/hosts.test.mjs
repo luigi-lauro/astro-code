@@ -132,6 +132,31 @@ test('a Codex agent renders as SKILL.md + agents/openai.yaml', () => {
     'astro agents are dispatched by the loop, never picked up opportunistically');
 });
 
+test('every Codex skill is tagged metadata.surfaces: codex so Cursor does not list it twice', () => {
+  // Cursor reads ~/.codex/skills as a third-party skill root; its parser drops a
+  // skill whose metadata.surfaces is set and lacks `cli` (cursor-cli 2026.10.01,
+  // phase 35 live check). Without the tag every command and agent showed up in
+  // Cursor twice. The block shape matches Codex's own shipped skills.
+  const codex = getHost('codex');
+  const rendered = [
+    ...codex.renderCommand('astro-plan', readCommand('astro-plan')),
+    ...codex.renderAgent('astro-executor', readAgent('astro-executor')),
+  ].filter((f) => f.path.endsWith('SKILL.md'));
+  assert.equal(rendered.length, 2);
+  for (const f of rendered) {
+    const fm = f.content.slice(0, f.content.indexOf('\n---', 3));
+    assert.match(fm, /^metadata:\n {2}surfaces: codex$/m, `${f.path}: nested metadata block`);
+    assert.doesNotMatch(fm, /surfaces:.*\bcli\b/, `${f.path}: must not opt back into Cursor's CLI`);
+    assert.equal(parseFrontmatter(f.content).frontmatter.name, f.path.split('/')[0],
+      'the flat parser still reads the top-level keys around the nested block');
+  }
+});
+
+test('toMarkdown renders a plain-object value as one nested block map', () => {
+  const out = toMarkdown({ name: 'x', metadata: { surfaces: 'codex', 'short-description': 'hi' } }, 'body');
+  assert.equal(out, '---\nname: x\nmetadata:\n  surfaces: codex\n  short-description: hi\n---\nbody');
+});
+
 // --- the headless invocation ----------------------------------------------------
 
 test('codex exec argv carries isolation and structured output natively', () => {
@@ -210,8 +235,8 @@ test('all shipped commands and agents render on every host without throwing', ()
 
 // --- the registry ---------------------------------------------------------------
 
-test('the host registry exposes claude and codex, and detect never throws', () => {
-  assert.deepEqual(HOSTS.map((h) => h.id), ['claude', 'codex']);
+test('the host registry exposes claude, codex and cursor, and detect never throws', () => {
+  assert.deepEqual(HOSTS.map((h) => h.id), ['claude', 'codex', 'cursor']);
   assert.equal(getHost('nope'), null);
   assert.ok(Array.isArray(detectHosts()), 'detectHosts must swallow adapter errors');
   for (const h of HOSTS) {

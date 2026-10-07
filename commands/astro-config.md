@@ -29,10 +29,36 @@ how many verify→remediate cycles a phase may burn. Different dials, both about
 
 If there is no `.astrocode/` here, tell the user to run `/astro-new-project` first and stop.
 
+## On Cursor
+
+Check this first. This command opened with the **Running on Cursor** note (the Cursor
+adapter prepends it to every command body) — i.e. you are Cursor's IDE agent or
+`cursor-agent`. The tiers below do not apply: `opus`, `sonnet` and the Balanced/Fast/Max
+profiles are Claude-only, and astro-code does not yet keep per-role Cursor models. On
+Cursor every role runs on the session's model — agents are installed `model: inherit`,
+so the model is chosen with Cursor's own model picker or `cursor-agent --model`.
+
+- **Never offer** `opus`, `sonnet`, haiku or the Balanced/Fast/Max profiles, and never
+  suggest a Claude model, for any role.
+- **Never run `ac config set models.<role>`** from Cursor, with any model id, and never
+  `ac models <profile>`. `.astrocode/config.json` is shared and committed, so a Cursor
+  model written there would be handed to every Claude teammate's subagents, whose host
+  does not have it.
+- **What you can do:** show `ac models`, and say in one line that model tiers apply only
+  to Claude Code sessions, while here every role uses the session's model (`inherit`),
+  chosen with Cursor's model picker or `cursor-agent --model`.
+- **Reasoning.** On Cursor, reasoning depth lives in the model id suffix rather than a
+  separate dial, so `reasoning.<role>` is not applied there in v1 — say so in one line.
+- If the user wants different Cursor models per role, say in one line that this isn't
+  supported yet, and offer to file it: `ac backlog add "Per-role Cursor models"`.
+
+Then stop: skip the Steps and Apply below.
+
 ## On Codex
 
-Check this first. If you are running in **Codex CLI** (you are an OpenAI/Codex model, and
-this command reached you as the `astro-config` skill), the tiers below do not apply.
+Check this first (and this command did not open with the Running on Cursor note). If
+you are running in **Codex CLI** (you are an OpenAI/Codex model, and this command
+reached you as the `astro-config` skill), the tiers below do not apply.
 `opus` and `sonnet` are Claude models. Codex has neither, and astro-code does not yet keep
 per-role Codex models. On Codex every role runs on this session's model.
 

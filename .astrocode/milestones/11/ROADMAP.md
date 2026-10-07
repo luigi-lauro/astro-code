@@ -2,6 +2,6 @@
 
 **Milestone 11**
 
-_No phases yet. Add one with `ac phase add <name>`._
+- [x] Phase 35 — Cursor host adapter `complete`
 
 <!-- generated from roadmap.json — edits here are overwritten; use `ac phase note <phase> "<text>"` -->

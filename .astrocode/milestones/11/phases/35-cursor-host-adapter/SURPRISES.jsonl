@@ -1,0 +1,1 @@
+{"at":"2026-10-07T12:49:51.040Z","phase":"35-cursor-host-adapter","signals":["remediation","max-cycles"],"note":"wave-1 RED tests tripped the post-integration test gate, a parallel test-only task (t12) was silently dropped, and C13 needs a host install the agents may not do"}

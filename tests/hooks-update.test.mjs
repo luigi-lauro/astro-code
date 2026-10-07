@@ -14,12 +14,22 @@ import { spawnSync } from 'node:child_process';
 const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function withEnv({ home, configDir }, fn) {
-  const prev = { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
+  const prev = {
+    HOME: process.env.HOME,
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+    CURSOR_CONFIG_DIR: process.env.CURSOR_CONFIG_DIR,
+    PATH: process.env.PATH,
+  };
   process.env.HOME = home;
   if (configDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
   else process.env.CLAUDE_CONFIG_DIR = configDir;
+  // Pin Cursor out of the picture (phase 35 t13/P10): HOME alone does not stop
+  // a real `cursor-agent` on the test runner's own PATH from getting detected
+  // and wired, which would make this install-running test machine-dependent.
+  delete process.env.CURSOR_CONFIG_DIR;
+  process.env.PATH = mkdtempSync(join(tmpdir(), 'ac-no-cursor-'));
   return Promise.resolve(fn()).finally(() => {
-    for (const k of ['HOME', 'CLAUDE_CONFIG_DIR']) {
+    for (const k of ['HOME', 'CLAUDE_CONFIG_DIR', 'CURSOR_CONFIG_DIR', 'PATH']) {
       if (prev[k] === undefined) delete process.env[k];
       else process.env[k] = prev[k];
     }
@@ -141,9 +151,9 @@ test('ac update drops the update-check cache, so an applied update is no longer 
   const bin = join(dir, 'bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'npm'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-  const env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` };
-  delete env.CLAUDE_CONFIG_DIR;
-  delete env.CODEX_HOME;
+  // Clean env (P10): never inherit the real PATH, so a `cursor-agent` on the
+  // test runner's own machine cannot get detected and wired here too.
+  const env = { HOME: home, PATH: [bin, '/usr/bin', '/bin'].join(':') };
 
   const r = spawnSync(process.execPath, [join(FRAMEWORK, 'bin', 'ac.mjs'), 'update', clone], { env, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
