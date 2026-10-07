@@ -148,6 +148,26 @@ test('registerHooks: native merge with Claude absent, idempotent re-run, then fl
   });
 });
 
+// --- fresh install, no pre-existing hooks.json (C5) ----------------------------
+
+test('registerHooks on a brand-new hooks.json writes a required top-level "version": 1', async () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), 'ac-cursor-fresh-'));
+  await withEnv(fakeHome, async () => {
+    const cursor = (await import('../lib/hosts/cursor.mjs')).default;
+
+    const dir = join(fakeHome, '.cursor');
+    mkdirSync(dir, { recursive: true });
+    const home = join(fakeHome, '.astro', 'code');
+    mkdirSync(home, { recursive: true });
+
+    const report = cursor.registerHooks(dir, home);
+    assert.equal(report.branch, 'native');
+
+    const hooksAfter = JSON.parse(readFileSync(join(dir, 'hooks.json'), 'utf8'));
+    assert.equal(hooksAfter.version, 1, 'a freshly-written hooks.json must carry version: 1');
+  });
+});
+
 // --- unparseable existing file: touch nothing (part of P7's three-way branch) ---
 
 test('registerHooks leaves an unparseable hooks.json/cli-config.json completely untouched and reports branch:none', async () => {
