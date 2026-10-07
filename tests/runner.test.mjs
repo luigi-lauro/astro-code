@@ -142,6 +142,53 @@ test('unparseable json degrades to raw text instead of throwing', async () => {
   assert.equal(r[0].result, 'not json at all');
 });
 
+// --- optional parseResult adapter hook -------------------------------------------
+
+test('a host with parseResult uses it instead of readResult on exit 0', async () => {
+  const fakeHost = { id: 'fake', execCommand: () => ({ command: 'fake', args: [] }), parseResult: (stdout) => `parsed:${stdout}` };
+  const r = await runWave([{ id: 'a', prompt: 'p' }], { host: fakeHost, spawnFn: ok('raw') });
+  assert.equal(r[0].result, 'parsed:raw');
+});
+
+test('a nullish parseResult return is a positional hole, same as a non-zero exit', async () => {
+  const fakeHost = { id: 'fake', execCommand: () => ({ command: 'fake', args: [] }), parseResult: () => null };
+  const events = [];
+  const r = await runWave([{ id: 'a', prompt: 'p' }], {
+    host: fakeHost, spawnFn: ok('garbage'), onProgress: (e) => events.push(e),
+  });
+  assert.deepEqual(r, [null]);
+  const end = events.find((e) => e.phase === 'end');
+  assert.equal(end.ok, false);
+  assert.equal(end.error, 'unparseable result');
+});
+
+test('parseResult is never called on a non-zero exit', async () => {
+  let called = false;
+  const fakeHost = {
+    id: 'fake', execCommand: () => ({ command: 'fake', args: [] }),
+    parseResult: () => { called = true; return 'x'; },
+  };
+  const r = await runWave([{ id: 'a', prompt: 'p' }], {
+    host: fakeHost, spawnFn: async () => ({ code: 1, stdout: '', stderr: 'boom' }),
+  });
+  assert.equal(r[0], null);
+  assert.equal(called, false, 'parseResult must only run on exit 0');
+});
+
+test('a throwing parseResult is a positional hole, not a rejected batch', async () => {
+  const fakeHost = {
+    id: 'fake', execCommand: () => ({ command: 'fake', args: [] }),
+    parseResult: () => { throw new Error('boom'); },
+  };
+  const r = await runWave([{ id: 'a', prompt: 'p' }], { host: fakeHost, spawnFn: ok('raw') });
+  assert.deepEqual(r, [null]);
+});
+
+test('a host without parseResult keeps the raw-text/JSON readResult fallback', async () => {
+  const r = await runWave([{ id: 'a', prompt: 'p' }], { host: claude, spawnFn: ok('plain text') });
+  assert.equal(r[0].result, 'plain text');
+});
+
 test('progress is reported per task for both start and end', async () => {
   const events = [];
   await runWave([{ id: 'a', prompt: 'p' }], {
