@@ -149,7 +149,12 @@ note at the top — no Workflow tool on Cursor, so a step that needs orchestrati
 subagents, else plain inline work. Agents run on whatever model the Cursor session itself
 is using (`model: inherit`); read-only roles (researcher, verifier, mapper, …) are derived
 from the source agent's own `tools:` list, not a hard-coded list, and installed with
-`readonly: true`.
+`readonly: true`. Cursor's CLI only registers subagents found inside the project, so the
+installed agent files are *instructions*, not subagent types: the host note tells a
+command to run each one in Cursor's built-in `explore` (read-only) or `generalPurpose`
+subagent with the file's text as its prompt. The Codex install's skill copies are tagged
+`metadata.surfaces: codex`, so Cursor — which also reads `~/.codex/skills` — does not
+list every astro-code command a second time.
 
 Hooks and the status line are only wired natively into Cursor's own `hooks.json` /
 `cli-config.json` when Claude Code is **absent** on the machine; when Claude Code is

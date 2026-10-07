@@ -76,6 +76,13 @@ test('every shipped command renders on Cursor as one file, note + verbatim body'
     assert.match(CURSOR_NOTE, /Workflow/);
     assert.match(CURSOR_NOTE, /Agent tool/);
     assert.match(CURSOR_NOTE, /subagent/);
+    // Live check: the CLI's Task tool rejects any subagent_type outside its
+    // built-in enum, so the note must route to explore/generalPurpose with the
+    // agent file as the prompt — never tell the model to pass astro-* by name.
+    assert.match(CURSOR_NOTE, /`explore`/);
+    assert.match(CURSOR_NOTE, /`generalPurpose`/);
+    assert.match(CURSOR_NOTE, /readonly: true/);
+    assert.match(CURSOR_NOTE, /never pass `astro-\*` as `subagent_type`/);
     assert.match(CURSOR_NOTE, /AskUserQuestion/);
     assert.match(CURSOR_NOTE, /numbered/);
 
