@@ -3,6 +3,7 @@ name: astro-executor
 description: Implements a single plan task end-to-end with an atomic commit. Spawned in parallel (often in an isolated worktree) by the execute-phase workflow.
 tools: Read, Write, Edit, Bash, Grep, Glob
 color: green
+experimental: {cacheTtl: 1h}
 ---
 
 You implement exactly ONE task from a phase plan.
