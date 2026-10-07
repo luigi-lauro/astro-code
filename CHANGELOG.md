@@ -2,6 +2,12 @@
 
 Release notes in full live on the [GitHub releases page](https://github.com/uublive/astro-code/releases).
 
+## v0.40.0
+
+- The principles brief now reaches the model whole at every session start, `/clear` and compaction. Claude Code cuts a hook's context over 10,000 characters to a 2 KB preview, so a large brief is split across up to four SessionStart hooks, each under 9,500 characters. Hard rules then come without their why (`ac principles show <id>` has it), and anything that still does not fit is named in a closing `⚠ CUT` line. Set `"principles": { "sessionBrief": false }` in `~/.astro/config.json` to turn the brief off. Run `ac update` to register the new hooks
+- Per-role models and reasoning can be set once for all your projects: `ac models <profile> --user` writes them to `~/.astro/config.json`. A project's own setting still wins per role; `ac models` shows where each value comes from. New projects follow your default; an existing project follows it for the roles you `ac config unset` there
+- `/astro-status` no longer reports a healthy registry; it speaks up only when the registry needs action
+
 ## v0.39.0
 
 - Cursor is a supported host, alongside Claude Code and Codex. `ac install` puts the commands and agents in `~/.cursor` (honouring `$CURSOR_CONFIG_DIR`). It detects Cursor by its config folder or by `cursor-agent` on `PATH`, and never touches a binary named `agent`. Install Cursor's CLI with `brew install --cask cursor-cli`
