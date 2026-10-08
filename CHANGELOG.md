@@ -2,6 +2,11 @@
 
 Release notes in full live on the [GitHub releases page](https://github.com/uublive/astro-code/releases).
 
+## v0.40.2
+
+- Cursor's slash menu shows each astro command's description again, instead of "Running on Cursor" for every command. The menu reads the first line of the command body, not the `description` frontmatter, so the description now leads the body, ahead of the Cursor host note. Claude Code and Codex commands are unchanged. Run `ac update` to rewrite `~/.cursor/commands`
+- `astro-executor` asks Claude Code for the 1-hour prompt cache (`experimental: {cacheTtl: 1h}`). An executor often waits more than 5 minutes for a build or test run, so with the default 5-minute cache its next call wrote the whole prompt again. Measured over a week, the executor was the only astro agent where those rewrites cost more than the 1-hour premium, so the other agents keep the default. Codex and Cursor do not get the key
+
 ## v0.40.1
 
 - Windows: `ac install` no longer stops with EPERM when `~/.claude` exists and Developer Mode is off. A file symlink Windows refuses is copied instead, so the Cursor commands get written too. Copies refresh on the next `ac install`/`ac update`, and uninstall removes them
