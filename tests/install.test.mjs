@@ -396,3 +396,38 @@ test('a stale file INSIDE an owned skill dir is cleaned, not just top-level ones
     }
   }
 });
+
+test('Windows without symlink rights (EPERM) → commands are copied, pruned and uninstalled', async () => {
+  const fs = await import('node:fs');
+  const { syncBuiltinESMExports } = await import('node:module');
+  const fakeHome = mkdtempSync(join(tmpdir(), 'ac-home-eperm-'));
+  const real = fs.default.symlinkSync;
+  fs.default.symlinkSync = () => { throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' }); };
+  syncBuiltinESMExports();
+  try {
+    await withEnv({ home: fakeHome, configDir: undefined }, async () => {
+      const { installClaude, uninstallClaude } = await import(`../lib/install.mjs?eperm=${encodeURIComponent(fakeHome)}`);
+      const res = installClaude(FRAMEWORK);
+      assert.ok(res.commands > 0);
+      const cmd = join(fakeHome, '.claude', 'commands', 'astro-status.md');
+      assert.ok(!lstatSync(cmd).isSymbolicLink(), 'copied, not linked');
+      assert.equal(readFileSync(cmd, 'utf8'), readFileSync(join(FRAMEWORK, 'commands', 'astro-status.md'), 'utf8'));
+
+      // a renamed-away command's copy is pruned; the user's own file is not
+      const stale = join(fakeHome, '.claude', 'commands', 'astro-gone.md');
+      const mine = join(fakeHome, '.claude', 'commands', 'my-own.md');
+      writeFileSync(stale, 'old');
+      writeFileSync(mine, 'mine');
+      installClaude(FRAMEWORK);
+      assert.ok(!existsSync(stale), 'stale astro-* copy pruned');
+      assert.ok(existsSync(mine), "user's own command untouched");
+
+      uninstallClaude();
+      assert.ok(!existsSync(cmd), 'uninstall removes the copies');
+      assert.ok(existsSync(mine));
+    });
+  } finally {
+    fs.default.symlinkSync = real;
+    syncBuiltinESMExports();
+  }
+});
