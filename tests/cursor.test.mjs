@@ -72,7 +72,8 @@ test('every shipped command renders on Cursor as one file, note + verbatim body'
     assert.equal(file.content.slice(idx), sourceBody, `${name}: nothing may follow the body but itself`);
 
     const between = file.content.slice(outFmEnd + 4, idx).replace(/^\r?\n/, '');
-    assert.equal(between, CURSOR_NOTE, `${name}: the text between frontmatter and body is CURSOR_NOTE`);
+    const lead = sourceDescription ? `${sourceDescription}\n\n` : '';
+    assert.equal(between, lead + CURSOR_NOTE, `${name}: the menu reads the first body line, so the description leads and CURSOR_NOTE follows`);
     assert.match(CURSOR_NOTE, /Workflow/);
     assert.match(CURSOR_NOTE, /Agent tool/);
     assert.match(CURSOR_NOTE, /subagent/);
