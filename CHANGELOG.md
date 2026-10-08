@@ -2,6 +2,12 @@
 
 Release notes in full live on the [GitHub releases page](https://github.com/uublive/astro-code/releases).
 
+## v0.40.1
+
+- Windows: `ac install` no longer stops with EPERM when `~/.claude` exists and Developer Mode is off. A file symlink Windows refuses is copied instead, so the Cursor commands get written too. Copies refresh on the next `ac install`/`ac update`, and uninstall removes them
+- Cursor commands installed from a Windows clone keep their `description`: frontmatter with CRLF line endings is now read correctly. `.gitattributes` keeps `*.md` and `*.mjs` LF on new clones
+- On Cursor, the host note tells the agent to run `astrocode` instead of `ac` in PowerShell, where `ac` is the built-in Add-Content alias
+
 ## v0.40.0
 
 - The principles brief now reaches the model whole at every session start, `/clear` and compaction. Claude Code cuts a hook's context over 10,000 characters to a 2 KB preview, so a large brief is split across up to four SessionStart hooks, each under 9,500 characters. Hard rules then come without their why (`ac principles show <id>` has it), and anything that still does not fit is named in a closing `⚠ CUT` line. Set `"principles": { "sessionBrief": false }` in `~/.astro/config.json` to turn the brief off. Run `ac update` to register the new hooks
