@@ -245,3 +245,11 @@ test('the host registry exposes claude, codex and cursor, and detect never throw
     }
   }
 });
+
+test('parseFrontmatter reads CRLF sources (a Windows clone with core.autocrlf)', () => {
+  const src = '---\r\ndescription: Show status\r\nallowed-tools: Bash\r\n---\r\nRun it.\r\n';
+  const { frontmatter, body } = parseFrontmatter(src);
+  assert.equal(frontmatter.description, 'Show status');
+  assert.equal(frontmatter['allowed-tools'], 'Bash');
+  assert.equal(body, 'Run it.\r\n');
+});

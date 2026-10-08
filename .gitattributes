@@ -1,0 +1,4 @@
+# Windows clones with core.autocrlf would check these out with CRLF; keep them LF so
+# the installed command and agent files match the source byte for byte.
+*.md text eol=lf
+*.mjs text eol=lf
